@@ -1,6 +1,5 @@
--- // Obby Helper Pro v3.1 - COMPLETE
--- // Clean ESP + Anti-AFK OP (5 Methods) + All Features
--- // Fixed ESP: outline only, auto-scale, fade, compact text
+-- // Obby Helper Pro v3.2 - COMPLETE
+-- // Clean ESP + Speed Meter + Anti-AFK + All Features
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -15,9 +14,6 @@ local player = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
--- ════════════════════════════════════════════
--- CLEANUP OLD GUI
--- ════════════════════════════════════════════
 pcall(function() player.PlayerGui:FindFirstChild("ObbyHelperGUI"):Destroy() end)
 
 -- ════════════════════════════════════════════
@@ -26,6 +22,11 @@ pcall(function() player.PlayerGui:FindFirstChild("ObbyHelperGUI"):Destroy() end)
 local ESP = {}
 local Connections = {}
 local ObstacleFolder = {}
+local SpeedData = {}
+local SelfSpeedData = {
+    lastPos = nil, lastTime = 0, speed = 0,
+    billboard = nil, label = nil, barFill = nil,
+}
 
 local Settings = {
     ObstacleTransparency = 0.7,
@@ -40,48 +41,37 @@ local ESP_SETTINGS = {
     TextSize = 13,
     MinTextSize = 8,
     NameOffset = 2.8,
-    ShowName = true,
-    ShowDistance = true,
-    ShowHealth = true,
-    ShowHealthBar = true,
     ShowDot = true,
     OutlineOnly = true,
 }
 
+local SPEED_SETTINGS = {
+    Enabled = false,
+    ShowSelf = true,
+    ShowOthers = true,
+    MaxSpeed = 100,
+    UpdateRate = 0.1,
+    SelfOffset = Vector3.new(0, 4.5, 0),
+    OtherOffset = Vector3.new(0, 1.8, 0),
+}
+
 local ServerHopData = {
-    Servers = {},
-    CurrentPage = 1,
-    PerPage = 25,
-    TotalPages = 1,
-    IsLoading = false,
-    SortMode = "players"
+    Servers = {}, CurrentPage = 1, PerPage = 25,
+    TotalPages = 1, IsLoading = false, SortMode = "players"
 }
 
 local PlayerAction = {
-    SpectateTarget = nil,
-    FollowTarget = nil,
-    IsSpectating = false,
-    IsFollowing = false,
-    TPConfirmPending = false
+    SpectateTarget = nil, FollowTarget = nil,
+    IsSpectating = false, IsFollowing = false, TPConfirmPending = false
 }
 
 local ToggleStates = {
-    ESP = false,
-    Obstacle = false,
-    Speed = false,
-    Jump = false,
-    InfJump = false,
-    Noclip = false,
-    AntiVoid = false,
-    Fullbright = false,
-    AntiAFK = false,
-    AutoJump = false,
+    ESP = false, Obstacle = false, Speed = false, Jump = false,
+    InfJump = false, Noclip = false, AntiVoid = false,
+    Fullbright = false, AntiAFK = false, AutoJump = false,
 }
 
 local oldLighting = {}
-local AntiAFKEnabled = false
-local antiAFKThreads = {}
-local afkTimerThread = nil
 
 -- ════════════════════════════════════════════
 -- SCREEN GUI
@@ -118,10 +108,14 @@ MinBoxStroke.Thickness = 3
 spawn(function()
     while ScreenGui.Parent do
         if MinimizedBox.Visible then
-            TweenService:Create(MinBoxStroke, TweenInfo.new(1, Enum.EasingStyle.Sine), {Color = Color3.fromRGB(150, 170, 255)}):Play()
+            TweenService:Create(MinBoxStroke, TweenInfo.new(1, Enum.EasingStyle.Sine), {
+                Color = Color3.fromRGB(150, 170, 255)
+            }):Play()
             task.wait(1)
             if MinimizedBox.Visible then
-                TweenService:Create(MinBoxStroke, TweenInfo.new(1, Enum.EasingStyle.Sine), {Color = Color3.fromRGB(80, 100, 255)}):Play()
+                TweenService:Create(MinBoxStroke, TweenInfo.new(1, Enum.EasingStyle.Sine), {
+                    Color = Color3.fromRGB(80, 100, 255)
+                }):Play()
             end
         end
         task.wait(1)
@@ -147,10 +141,7 @@ Main.ClipsDescendants = true
 Main.ZIndex = 1
 Main.Parent = ScreenGui
 Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 14)
-
-local MainStroke = Instance.new("UIStroke", Main)
-MainStroke.Color = Color3.fromRGB(80, 100, 255)
-MainStroke.Thickness = 2
+Instance.new("UIStroke", Main).Color = Color3.fromRGB(80, 100, 255)
 
 -- ════════════════════════════════════════════
 -- TITLE BAR
@@ -163,15 +154,14 @@ TitleBar.ZIndex = 2
 TitleBar.Parent = Main
 Instance.new("UICorner", TitleBar).CornerRadius = UDim.new(0, 14)
 
-local TBarFix = Instance.new("Frame")
+local TBarFix = Instance.new("Frame", TitleBar)
 TBarFix.Size = UDim2.new(1, 0, 0.4, 0)
 TBarFix.Position = UDim2.new(0, 0, 0.6, 0)
 TBarFix.BackgroundColor3 = Color3.fromRGB(30, 30, 46)
 TBarFix.BorderSizePixel = 0
 TBarFix.ZIndex = 2
-TBarFix.Parent = TitleBar
 
-local Title = Instance.new("TextLabel")
+local Title = Instance.new("TextLabel", TitleBar)
 Title.Size = UDim2.new(0.55, 0, 1, 0)
 Title.Position = UDim2.new(0.04, 0, 0, 0)
 Title.BackgroundTransparency = 1
@@ -181,22 +171,19 @@ Title.TextSize = isMobile and 19 or 17
 Title.Font = Enum.Font.GothamBold
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.ZIndex = 3
-Title.Parent = TitleBar
 
-local VerBadge = Instance.new("TextLabel")
+local VerBadge = Instance.new("TextLabel", TitleBar)
 VerBadge.Size = UDim2.new(0, 36, 0, 18)
 VerBadge.Position = UDim2.new(0, isMobile and 165 or 148, 0.5, -9)
 VerBadge.BackgroundColor3 = Color3.fromRGB(80, 100, 255)
-VerBadge.Text = "v3.1"
+VerBadge.Text = "v3.2"
 VerBadge.TextColor3 = Color3.new(1, 1, 1)
 VerBadge.TextSize = 9
 VerBadge.Font = Enum.Font.GothamBold
 VerBadge.ZIndex = 4
-VerBadge.Parent = TitleBar
 Instance.new("UICorner", VerBadge).CornerRadius = UDim.new(0, 6)
 
--- Minimize
-local MinimizeBtn = Instance.new("TextButton")
+local MinimizeBtn = Instance.new("TextButton", TitleBar)
 MinimizeBtn.Size = isMobile and UDim2.new(0, 40, 0, 40) or UDim2.new(0, 32, 0, 32)
 MinimizeBtn.Position = isMobile and UDim2.new(1, -90, 0.5, -20) or UDim2.new(1, -76, 0.5, -16)
 MinimizeBtn.BackgroundColor3 = Color3.fromRGB(255, 175, 0)
@@ -206,11 +193,9 @@ MinimizeBtn.TextSize = isMobile and 20 or 16
 MinimizeBtn.Font = Enum.Font.GothamBold
 MinimizeBtn.ZIndex = 3
 MinimizeBtn.AutoButtonColor = false
-MinimizeBtn.Parent = TitleBar
 Instance.new("UICorner", MinimizeBtn).CornerRadius = UDim.new(0.5, 0)
 
--- Close
-local CloseBtn = Instance.new("TextButton")
+local CloseBtn = Instance.new("TextButton", TitleBar)
 CloseBtn.Size = isMobile and UDim2.new(0, 40, 0, 40) or UDim2.new(0, 32, 0, 32)
 CloseBtn.Position = isMobile and UDim2.new(1, -45, 0.5, -20) or UDim2.new(1, -40, 0.5, -16)
 CloseBtn.BackgroundColor3 = Color3.fromRGB(220, 55, 55)
@@ -220,10 +205,8 @@ CloseBtn.TextSize = isMobile and 18 or 15
 CloseBtn.Font = Enum.Font.GothamBold
 CloseBtn.ZIndex = 3
 CloseBtn.AutoButtonColor = false
-CloseBtn.Parent = TitleBar
 Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0.5, 0)
 
--- Hover effects
 for _, pair in ipairs({
     {MinimizeBtn, Color3.fromRGB(255, 210, 50), Color3.fromRGB(255, 175, 0)},
     {CloseBtn, Color3.fromRGB(255, 80, 80), Color3.fromRGB(220, 55, 55)}
@@ -236,11 +219,7 @@ for _, pair in ipairs({
     end)
 end
 
--- Minimize / Restore
-local isMinimized = false
-
 MinimizeBtn.MouseButton1Click:Connect(function()
-    isMinimized = true
     TweenService:Create(Main, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
         Size = UDim2.new(0, 0, 0, 0)
     }):Play()
@@ -254,7 +233,6 @@ MinimizeBtn.MouseButton1Click:Connect(function()
 end)
 
 MinimizedBox.MouseButton1Click:Connect(function()
-    isMinimized = false
     TweenService:Create(MinimizedBox, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
         Size = UDim2.new(0, 0, 0, 0)
     }):Play()
@@ -268,7 +246,7 @@ MinimizedBox.MouseButton1Click:Connect(function()
 end)
 
 -- ════════════════════════════════════════════
--- TAB SYSTEM (5 TABS)
+-- TAB SYSTEM
 -- ════════════════════════════════════════════
 local TabBarHeight = isMobile and 46 or 40
 local TitleBarHeight = isMobile and 60 or 50
@@ -299,14 +277,13 @@ local function createTab(name, icon, layoutOrder)
     btn.LayoutOrder = layoutOrder
     btn.Parent = TabBar
 
-    local indicator = Instance.new("Frame")
+    local indicator = Instance.new("Frame", btn)
     indicator.Size = UDim2.new(0.6, 0, 0, 3)
     indicator.Position = UDim2.new(0.2, 0, 1, -3)
     indicator.BackgroundColor3 = Color3.fromRGB(100, 120, 255)
     indicator.BorderSizePixel = 0
     indicator.ZIndex = 4
     indicator.Visible = false
-    indicator.Parent = btn
     Instance.new("UICorner", indicator).CornerRadius = UDim.new(1, 0)
 
     TabButtons[name:lower()] = {Button = btn, Indicator = indicator}
@@ -504,7 +481,6 @@ local function createSlider(labelText, parent, minVal, maxVal, default, suffix, 
     sliderBtn.ZIndex = 8
 
     local dragging = false
-
     local function updateFromX(absX)
         local rel = math.clamp((absX - sliderBack.AbsolutePosition.X) / sliderBack.AbsoluteSize.X, 0, 1)
         local value = minVal + (maxVal - minVal) * rel
@@ -516,8 +492,7 @@ local function createSlider(labelText, parent, minVal, maxVal, default, suffix, 
 
     sliderBtn.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            updateFromX(input.Position.X)
+            dragging = true; updateFromX(input.Position.X)
         end
     end)
     sliderBtn.InputEnded:Connect(function(input)
@@ -562,7 +537,7 @@ local function createWarningBox(text, parent, order)
 end
 
 -- ════════════════════════════════════════════
--- NOTIFICATION SYSTEM
+-- NOTIFICATION
 -- ════════════════════════════════════════════
 local NotifFrame = Instance.new("Frame")
 NotifFrame.Size = UDim2.new(0, 280, 0, 55)
@@ -590,15 +565,270 @@ local function showNotif(text, color)
     notifActive = true
     NotifText.Text = text
     NotifFrame.BackgroundColor3 = color or Color3.fromRGB(30, 40, 60)
-    TweenService:Create(NotifFrame, TweenInfo.new(0.4, Enum.EasingStyle.Back), {Position = UDim2.new(0.5, -140, 0, 15)}):Play()
+    TweenService:Create(NotifFrame, TweenInfo.new(0.4, Enum.EasingStyle.Back), {
+        Position = UDim2.new(0.5, -140, 0, 15)
+    }):Play()
     task.wait(2.5)
-    TweenService:Create(NotifFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {Position = UDim2.new(0.5, -140, 0, -70)}):Play()
+    TweenService:Create(NotifFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
+        Position = UDim2.new(0.5, -140, 0, -70)
+    }):Play()
     task.wait(0.3)
     notifActive = false
 end
 
 -- ════════════════════════════════════════════
--- ESP SYSTEM v3.1 - CLEAN & NON-OBSTRUCTIVE
+-- SPEED METER HELPERS
+-- ════════════════════════════════════════════
+local function getSpeedColor(speed)
+    if speed <= 5 then return Color3.fromRGB(150, 150, 180)
+    elseif speed <= 20 then return Color3.fromRGB(100, 220, 100)
+    elseif speed <= 50 then return Color3.fromRGB(255, 200, 50)
+    elseif speed <= 100 then return Color3.fromRGB(255, 120, 50)
+    else return Color3.fromRGB(255, 60, 60) end
+end
+
+local function getSpeedIcon(speed)
+    if speed <= 2 then return "🔴"
+    elseif speed <= 16 then return "🚶"
+    elseif speed <= 32 then return "🏃"
+    elseif speed <= 60 then return "💨"
+    else return "⚡" end
+end
+
+-- ════════════════════════════════════════════
+-- SELF SPEED BILLBOARD
+-- ════════════════════════════════════════════
+local function createSelfSpeedBillboard()
+    if SelfSpeedData.billboard then
+        pcall(function() SelfSpeedData.billboard:Destroy() end)
+    end
+
+    if not player.Character then return end
+    local head = player.Character:FindFirstChild("Head")
+    if not head then return end
+
+    local bb = Instance.new("BillboardGui")
+    bb.Name = "SelfSpeedBB"
+    bb.Adornee = head
+    bb.AlwaysOnTop = true
+    bb.LightInfluence = 0
+    bb.StudsOffset = SPEED_SETTINGS.SelfOffset
+    bb.Size = UDim2.new(0, 180, 0, 40)
+    bb.Parent = ScreenGui
+
+    local container = Instance.new("Frame", bb)
+    container.Size = UDim2.new(1, 0, 1, 0)
+    container.BackgroundTransparency = 1
+    container.BorderSizePixel = 0
+
+    -- Speed Label
+    local label = Instance.new("TextLabel", container)
+    label.Size = UDim2.new(1, 0, 0, 17)
+    label.BackgroundTransparency = 1
+    label.Text = "🔴 0.0 st/s"
+    label.TextColor3 = Color3.fromRGB(200, 200, 255)
+    label.TextSize = 13
+    label.Font = Enum.Font.GothamBold
+    label.TextStrokeTransparency = 0.2
+    label.TextStrokeColor3 = Color3.new(0, 0, 0)
+    label.ZIndex = 2
+
+    -- YOU Badge
+    local youBadge = Instance.new("TextLabel", container)
+    youBadge.Size = UDim2.new(0, 34, 0, 13)
+    youBadge.Position = UDim2.new(0, 0, 0, 18)
+    youBadge.BackgroundColor3 = Color3.fromRGB(80, 100, 220)
+    youBadge.Text = "YOU"
+    youBadge.TextColor3 = Color3.new(1, 1, 1)
+    youBadge.TextSize = 8
+    youBadge.Font = Enum.Font.GothamBold
+    youBadge.ZIndex = 3
+    Instance.new("UICorner", youBadge).CornerRadius = UDim.new(0, 4)
+
+    -- Speed Bar
+    local barBG = Instance.new("Frame", container)
+    barBG.Size = UDim2.new(1, -40, 0, 6)
+    barBG.Position = UDim2.new(0, 38, 0, 21)
+    barBG.BackgroundColor3 = Color3.fromRGB(30, 30, 50)
+    barBG.BorderSizePixel = 0
+    Instance.new("UICorner", barBG).CornerRadius = UDim.new(1, 0)
+
+    local barFill = Instance.new("Frame", barBG)
+    barFill.Size = UDim2.new(0, 0, 1, 0)
+    barFill.BackgroundColor3 = Color3.fromRGB(100, 220, 100)
+    barFill.BorderSizePixel = 0
+    Instance.new("UICorner", barFill).CornerRadius = UDim.new(1, 0)
+
+    SelfSpeedData.billboard = bb
+    SelfSpeedData.label = label
+    SelfSpeedData.barFill = barFill
+    SelfSpeedData.lastPos = nil
+    SelfSpeedData.lastTime = tick()
+    SelfSpeedData.speed = 0
+end
+
+-- ════════════════════════════════════════════
+-- OTHER PLAYER SPEED BILLBOARD
+-- ════════════════════════════════════════════
+local function createPlayerSpeedBB(plr)
+    if plr == player then return end
+    if not plr.Character then return end
+
+    if SpeedData[plr] and SpeedData[plr].billboard then
+        pcall(function() SpeedData[plr].billboard:Destroy() end)
+    end
+
+    local head = plr.Character:FindFirstChild("Head")
+    if not head then return end
+
+    local bb = Instance.new("BillboardGui")
+    bb.Name = "SpeedBB_" .. plr.Name
+    bb.Adornee = head
+    bb.AlwaysOnTop = true
+    bb.LightInfluence = 0
+    bb.StudsOffset = SPEED_SETTINGS.OtherOffset
+    bb.Size = UDim2.new(0, 120, 0, 14)
+    bb.MaxDistance = ESP_SETTINGS.MaxDistance
+    bb.Parent = ScreenGui
+
+    local label = Instance.new("TextLabel", bb)
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = "🔴 0.0 st/s"
+    label.TextColor3 = Color3.fromRGB(150, 150, 180)
+    label.TextSize = 10
+    label.Font = Enum.Font.GothamBold
+    label.TextStrokeTransparency = 0.3
+    label.TextStrokeColor3 = Color3.new(0, 0, 0)
+
+    if not SpeedData[plr] then
+        SpeedData[plr] = {lastPos = nil, lastTime = tick(), speed = 0}
+    end
+    SpeedData[plr].billboard = bb
+    SpeedData[plr].label = label
+    SpeedData[plr].char = plr.Character
+end
+
+local function removePlayerSpeedBB(plr)
+    if SpeedData[plr] then
+        pcall(function()
+            if SpeedData[plr].billboard then SpeedData[plr].billboard:Destroy() end
+        end)
+        SpeedData[plr] = nil
+    end
+end
+
+-- ════════════════════════════════════════════
+-- SPEED UPDATE LOOP
+-- ════════════════════════════════════════════
+local lastSpeedUpdate = 0
+
+local function updateAllSpeeds()
+    local now = tick()
+    if now - lastSpeedUpdate < SPEED_SETTINGS.UpdateRate then return end
+    lastSpeedUpdate = now
+
+    -- SELF
+    if SPEED_SETTINGS.ShowSelf and SelfSpeedData.billboard then
+        pcall(function()
+            local char = player.Character
+            if not char then return end
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if not hrp then return end
+
+            local currentPos = hrp.Position
+            if SelfSpeedData.lastPos then
+                local dt = now - SelfSpeedData.lastTime
+                if dt > 0 then
+                    local rawSpeed = (currentPos - SelfSpeedData.lastPos).Magnitude / dt
+                    SelfSpeedData.speed = SelfSpeedData.speed * 0.6 + rawSpeed * 0.4
+                end
+            end
+            SelfSpeedData.lastPos = currentPos
+            SelfSpeedData.lastTime = now
+
+            local speed = SelfSpeedData.speed
+            local speedColor = getSpeedColor(speed)
+            local speedIcon = getSpeedIcon(speed)
+            local barRatio = math.clamp(speed / SPEED_SETTINGS.MaxSpeed, 0, 1)
+
+            if SelfSpeedData.label then
+                SelfSpeedData.label.Text = string.format("%s %.1f st/s", speedIcon, speed)
+                SelfSpeedData.label.TextColor3 = speedColor
+            end
+            if SelfSpeedData.barFill then
+                SelfSpeedData.barFill.Size = UDim2.new(barRatio, 0, 1, 0)
+                SelfSpeedData.barFill.BackgroundColor3 = speedColor
+            end
+        end)
+    end
+
+    -- OTHERS
+    if SPEED_SETTINGS.ShowOthers then
+        local localHRP = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+        for plr, data in pairs(SpeedData) do
+            pcall(function()
+                if not plr or not plr.Parent then removePlayerSpeedBB(plr) return end
+
+                local char = plr.Character
+                if not char then return end
+
+                if data.char ~= char then
+                    removePlayerSpeedBB(plr)
+                    task.delay(0.5, function()
+                        if SPEED_SETTINGS.Enabled and plr and plr.Parent then
+                            createPlayerSpeedBB(plr)
+                        end
+                    end)
+                    return
+                end
+
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if not hrp or not hum then return end
+
+                local currentPos = hrp.Position
+                if data.lastPos then
+                    local dt = now - data.lastTime
+                    if dt > 0 then
+                        local rawSpeed = (currentPos - data.lastPos).Magnitude / dt
+                        data.speed = (data.speed or 0) * 0.6 + rawSpeed * 0.4
+                    end
+                end
+                data.lastPos = currentPos
+                data.lastTime = now
+
+                local speed = data.speed or 0
+                local speedColor = getSpeedColor(speed)
+                local speedIcon = getSpeedIcon(speed)
+
+                -- Fade berdasarkan jarak
+                local fadeAlpha = 1
+                if localHRP then
+                    local dist = (localHRP.Position - hrp.Position).Magnitude
+                    if dist > ESP_SETTINGS.FadeStart then
+                        fadeAlpha = 1 - math.clamp(
+                            (dist - ESP_SETTINGS.FadeStart) / (ESP_SETTINGS.MaxDistance - ESP_SETTINGS.FadeStart), 0, 1
+                        )
+                    end
+                end
+
+                if data.label then
+                    data.label.Text = string.format("%s %.1f st/s", speedIcon, speed)
+                    data.label.TextColor3 = speedColor
+                    data.label.TextTransparency = 1 - fadeAlpha
+                    data.label.TextStrokeTransparency = 0.3 + (1 - fadeAlpha) * 0.7
+                end
+                if data.billboard then
+                    data.billboard.Enabled = hum.Health > 0
+                end
+            end)
+        end
+    end
+end
+
+-- ════════════════════════════════════════════
+-- ESP SYSTEM
 -- ════════════════════════════════════════════
 local function cleanupPlayerESP(plr)
     if ESP[plr] then
@@ -624,7 +854,7 @@ local function createPlayerESP(plr)
 
         local espData = {}
 
-        -- 1. HIGHLIGHT (Outline only)
+        -- Highlight
         local highlight = Instance.new("Highlight")
         highlight.Adornee = char
         highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
@@ -635,7 +865,7 @@ local function createPlayerESP(plr)
         highlight.Parent = ScreenGui
         espData.Highlight = highlight
 
-        -- 2. BILLBOARD (Compact)
+        -- Billboard
         local billboard = Instance.new("BillboardGui")
         billboard.Adornee = head
         billboard.AlwaysOnTop = true
@@ -651,7 +881,7 @@ local function createPlayerESP(plr)
         container.BackgroundTransparency = 1
         container.BorderSizePixel = 0
 
-        -- 3. NAME (kecil, stroke)
+        -- Name
         local nameLabel = Instance.new("TextLabel", container)
         nameLabel.Size = UDim2.new(1, 0, 0, 14)
         nameLabel.BackgroundTransparency = 1
@@ -663,7 +893,7 @@ local function createPlayerESP(plr)
         nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
         espData.NameLabel = nameLabel
 
-        -- 4. INFO (1 baris: distance + HP%)
+        -- Info
         local infoLabel = Instance.new("TextLabel", container)
         infoLabel.Size = UDim2.new(1, 0, 0, 12)
         infoLabel.Position = UDim2.new(0, 0, 0, 14)
@@ -675,7 +905,7 @@ local function createPlayerESP(plr)
         infoLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
         espData.InfoLabel = infoLabel
 
-        -- 5. HP BAR (3px tipis)
+        -- HP Bar
         local hpBG = Instance.new("Frame", container)
         hpBG.Size = UDim2.new(0.8, 0, 0, 3)
         hpBG.Position = UDim2.new(0.1, 0, 0, 28)
@@ -692,7 +922,7 @@ local function createPlayerESP(plr)
         Instance.new("UICorner", hpFill).CornerRadius = UDim.new(1, 0)
         espData.HpFill = hpFill
 
-        -- 6. HEAD DOT (titik kecil)
+        -- Head Dot
         if ESP_SETTINGS.ShowDot then
             local dotBB = Instance.new("BillboardGui")
             dotBB.Adornee = head
@@ -745,30 +975,22 @@ local function updateAllESP()
 
             local hum = char:FindFirstChildOfClass("Humanoid")
             local hrp = char:FindFirstChild("HumanoidRootPart")
-            local head = char:FindFirstChild("Head")
-            if not hum or not hrp or not head then cleanupPlayerESP(plr) return end
+            if not hum or not hrp then cleanupPlayerESP(plr) return end
 
-            -- Dead
             local alive = hum.Health > 0
             if data.Billboard then data.Billboard.Enabled = alive end
             if data.DotBillboard then data.DotBillboard.Enabled = alive end
             if data.Highlight then data.Highlight.Enabled = alive end
             if not alive then return end
 
-            -- Distance
-            local distance = 0
-            if localHRP then
-                distance = math.floor((localHRP.Position - hrp.Position).Magnitude)
-            end
+            local distance = localHRP and math.floor((localHRP.Position - hrp.Position).Magnitude) or 0
 
-            -- Color by distance
             local distColor
             if distance <= 30 then distColor = Color3.fromRGB(255, 70, 70)
             elseif distance <= 80 then distColor = Color3.fromRGB(255, 200, 60)
             elseif distance <= 200 then distColor = Color3.fromRGB(100, 255, 120)
             else distColor = Color3.fromRGB(100, 180, 255) end
 
-            -- Fade
             local fadeAlpha = 1
             if distance > ESP_SETTINGS.FadeStart then
                 fadeAlpha = 1 - math.clamp(
@@ -776,17 +998,14 @@ local function updateAllESP()
                 )
             end
 
-            -- Dynamic text size
             local dynSize = math.clamp(ESP_SETTINGS.TextSize - (distance / 80), ESP_SETTINGS.MinTextSize, ESP_SETTINGS.TextSize)
 
-            -- Highlight
             if data.Highlight then
                 data.Highlight.OutlineColor = distColor
                 data.Highlight.OutlineTransparency = 0.3 + (1 - fadeAlpha) * 0.7
                 data.Highlight.FillTransparency = 1
             end
 
-            -- Name
             if data.NameLabel then
                 data.NameLabel.Text = plr.Name
                 data.NameLabel.TextColor3 = distColor
@@ -795,7 +1014,6 @@ local function updateAllESP()
                 data.NameLabel.TextStrokeTransparency = 0.2 + (1 - fadeAlpha) * 0.8
             end
 
-            -- Info
             if data.InfoLabel then
                 local hpPct = math.floor((hum.Health / hum.MaxHealth) * 100)
                 data.InfoLabel.Text = string.format("%dm • %d%%", distance, hpPct)
@@ -809,7 +1027,6 @@ local function updateAllESP()
                 data.InfoLabel.TextStrokeTransparency = 0.3 + (1 - fadeAlpha) * 0.7
             end
 
-            -- HP Bar
             if data.HpFill then
                 local hpR = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
                 data.HpFill.Size = UDim2.new(hpR, 0, 1, 0)
@@ -819,14 +1036,12 @@ local function updateAllESP()
                 data.HpBG.BackgroundTransparency = 0.3 + (1 - fadeAlpha) * 0.7
             end
 
-            -- Dot
             if data.Dot then
                 data.Dot.BackgroundColor3 = distColor
                 data.Dot.BackgroundTransparency = 1 - fadeAlpha
             end
             if data.DotStroke then data.DotStroke.Transparency = 1 - fadeAlpha end
 
-            -- Auto scale billboard
             if data.Billboard then
                 local scale = math.clamp(1 - (distance / 800), 0.5, 1)
                 data.Billboard.Size = UDim2.new(0, math.floor(140 * scale), 0, math.floor(42 * scale))
@@ -845,10 +1060,11 @@ end
 -- ════════════════════════════════════════════
 createCategory("📡 ESP & Vision", MainContent, 1)
 
+-- ESP Toggle
 local PlayerESPToggle = createButton("❌ Player ESP: OFF", MainContent, nil, 2)
 PlayerESPToggle.MouseButton1Click:Connect(function()
     ToggleStates.ESP = not ToggleStates.ESP
-    PlayerESPToggle.Text = ToggleStates.ESP and "✅ Player ESP: ON (Clean)" or "❌ Player ESP: OFF"
+    PlayerESPToggle.Text = ToggleStates.ESP and "✅ Player ESP: ON" or "❌ Player ESP: OFF"
     setToggleVisual(PlayerESPToggle, ToggleStates.ESP)
 
     if ToggleStates.ESP then
@@ -865,8 +1081,36 @@ PlayerESPToggle.MouseButton1Click:Connect(function()
     end
 end)
 
--- Obstacle Visualizer
-local ObstacleToggle = createButton("❌ Obstacle Visualizer: OFF", MainContent, nil, 3)
+-- Speed Meter Toggle
+local SpeedMeterToggle = createButton("❌ Speed Meter: OFF", MainContent, nil, 3)
+SpeedMeterToggle.MouseButton1Click:Connect(function()
+    SPEED_SETTINGS.Enabled = not SPEED_SETTINGS.Enabled
+    SpeedMeterToggle.Text = SPEED_SETTINGS.Enabled and "✅ Speed Meter: ON" or "❌ Speed Meter: OFF"
+    setToggleVisual(SpeedMeterToggle, SPEED_SETTINGS.Enabled)
+
+    if SPEED_SETTINGS.Enabled then
+        createSelfSpeedBillboard()
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= player then createPlayerSpeedBB(plr) end
+        end
+        Connections.SpeedUpdate = RunService.Heartbeat:Connect(updateAllSpeeds)
+        showNotif("⚡ Speed Meter: ON", Color3.fromRGB(20, 70, 40))
+    else
+        if Connections.SpeedUpdate then Connections.SpeedUpdate:Disconnect() Connections.SpeedUpdate = nil end
+        if SelfSpeedData.billboard then
+            pcall(function() SelfSpeedData.billboard:Destroy() end)
+            SelfSpeedData.billboard = nil
+            SelfSpeedData.label = nil
+            SelfSpeedData.barFill = nil
+        end
+        for plr in pairs(SpeedData) do removePlayerSpeedBB(plr) end
+        SpeedData = {}
+        showNotif("⚡ Speed Meter: OFF", Color3.fromRGB(70, 20, 20))
+    end
+end)
+
+-- Obstacle
+local ObstacleToggle = createButton("❌ Obstacle Visualizer: OFF", MainContent, nil, 4)
 
 local function clearObstacles()
     for part, data in pairs(ObstacleFolder) do
@@ -896,7 +1140,6 @@ ObstacleToggle.MouseButton1Click:Connect(function()
                     hl.FillTransparency = Settings.ObstacleTransparency
                     hl.Adornee = part
                     hl.Parent = part
-
                     ObstacleFolder[part] = {OT = part.Transparency, OC = part.Color, OM = part.Material, HL = hl}
                     part.Transparency = Settings.ObstacleTransparency
                     part.Color = Settings.ObstacleColor
@@ -923,7 +1166,7 @@ createSlider("🎚️ Obstacle Transparency", MainContent, 0.1, 0.95, Settings.O
             end)
         end
     end
-end, 4)
+end, 5)
 
 -- Movement
 createCategory("⚡ Movement", MainContent, 10)
@@ -989,7 +1232,6 @@ Connections.InfJump = UserInputService.JumpRequest:Connect(function()
     end)
 end)
 
--- Noclip
 local NoclipToggle = createButton("❌ Noclip: OFF", MainContent, nil, 16)
 NoclipToggle.MouseButton1Click:Connect(function()
     ToggleStates.Noclip = not ToggleStates.Noclip
@@ -1017,7 +1259,6 @@ NoclipToggle.MouseButton1Click:Connect(function()
     end
 end)
 
--- Anti-Void
 local AntiVoidToggle = createButton("❌ Anti-Void: OFF", MainContent, nil, 17)
 AntiVoidToggle.MouseButton1Click:Connect(function()
     ToggleStates.AntiVoid = not ToggleStates.AntiVoid
@@ -1107,12 +1348,7 @@ end, 33)
 -- ════════════════════════════════════════════
 createCategory("🤖 Auto Features", ExtraContent, 1)
 
--- ════════════════════════════════════════════
--- ANTI-AFK (SIMPLE - PROVEN WORKS)
--- ════════════════════════════════════════════
-
 local AntiAFKToggle = createButton("❌ Anti-AFK: OFF", ExtraContent, nil, 2)
-
 AntiAFKToggle.MouseButton1Click:Connect(function()
     ToggleStates.AntiAFK = not ToggleStates.AntiAFK
     AntiAFKToggle.Text = ToggleStates.AntiAFK and "✅ Anti-AFK: ON" or "❌ Anti-AFK: OFF"
@@ -1127,16 +1363,12 @@ AntiAFKToggle.MouseButton1Click:Connect(function()
         end)
         showNotif("🛡️ Anti-AFK: ON", Color3.fromRGB(20, 70, 35))
     else
-        if Connections.AntiAFK then
-            Connections.AntiAFK:Disconnect()
-            Connections.AntiAFK = nil
-        end
+        if Connections.AntiAFK then Connections.AntiAFK:Disconnect() Connections.AntiAFK = nil end
         showNotif("🛡️ Anti-AFK: OFF", Color3.fromRGB(70, 20, 20))
     end
 end)
 
--- Auto Jump
-local AutoJumpToggle = createButton("❌ Auto Jump: OFF", ExtraContent, nil, 4)
+local AutoJumpToggle = createButton("❌ Auto Jump: OFF", ExtraContent, nil, 3)
 AutoJumpToggle.MouseButton1Click:Connect(function()
     ToggleStates.AutoJump = not ToggleStates.AutoJump
     AutoJumpToggle.Text = ToggleStates.AutoJump and "✅ Auto Jump: ON" or "❌ Auto Jump: OFF"
@@ -1158,7 +1390,6 @@ end)
 
 createCategory("🎨 Character", ExtraContent, 10)
 
--- Invisible
 local InvisToggle = createButton("❌ Invisible (Local): OFF", ExtraContent, nil, 11)
 InvisToggle.MouseButton1Click:Connect(function()
     local s = not InvisToggle:GetAttribute("active")
@@ -1173,11 +1404,7 @@ InvisToggle.MouseButton1Click:Connect(function()
     end)
 end)
 
--- Big/Small
-for _, cfg in ipairs({
-    {"Big Character", 12, 2},
-    {"Small Character", 13, 0.4}
-}) do
+for _, cfg in ipairs({{"Big Character", 12, 2}, {"Small Character", 13, 0.4}}) do
     local toggle = createButton("❌ " .. cfg[1] .. ": OFF", ExtraContent, nil, cfg[2] + 9)
     toggle.MouseButton1Click:Connect(function()
         local s = not toggle:GetAttribute("active")
@@ -1199,7 +1426,7 @@ end
 -- PLAYERS TAB
 -- ════════════════════════════════════════════
 createWarningBox(
-    "⚠️ <b>TELEPORT WARNING!</b>\n🔴 TP — BERBAHAYA, bisa BAN\n🟡 Follow — Moderate\n🟢 Spectate — Aman",
+    "⚠️ <b>TELEPORT WARNING!</b>\n🔴 TP — BERBAHAYA\n🟡 Follow — Moderate\n🟢 Spectate — Aman",
     PlayersContent, 0
 )
 
@@ -1329,7 +1556,6 @@ ConfirmTP.MouseButton1Click:Connect(function()
     pendingTP = nil
 end)
 
--- Player Actions
 local function stopSpectate()
     if PlayerAction.IsSpectating then
         PlayerAction.IsSpectating = false; PlayerAction.SpectateTarget = nil
@@ -1419,6 +1645,7 @@ local function createPlayerEntry(t, idx)
     av.Size = UDim2.new(0, isMobile and 42 or 36, 0, isMobile and 42 or 36)
     av.Position = UDim2.new(0,8,0,8); av.BackgroundColor3 = Color3.fromRGB(55,55,88); av.ZIndex = 5
     Instance.new("UICorner", av).CornerRadius = UDim.new(0.5, 0)
+
     local avT = Instance.new("TextLabel", av)
     avT.Size = UDim2.new(1,0,1,0); avT.BackgroundTransparency = 1
     avT.Text = t.Name:sub(1,2):upper(); avT.TextColor3 = Color3.new(1,1,1)
@@ -1447,7 +1674,12 @@ local function createPlayerEntry(t, idx)
                         if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
                             d2 = math.floor((player.Character.HumanoidRootPart.Position - hrp.Position).Magnitude)
                         end
-                        hL.Text = string.format("❤️ %.0f • 📏 %d st", hum.Health, d2)
+                        -- Ambil speed dari SpeedData jika ada
+                        local speedText = ""
+                        if SpeedData[t] then
+                            speedText = string.format(" • ⚡%.0f st/s", SpeedData[t].speed or 0)
+                        end
+                        hL.Text = string.format("❤️ %.0f • 📏 %d st%s", hum.Health, d2, speedText)
                     end
                 else hL.Text = "💀 No char" end
             end)
@@ -1498,11 +1730,13 @@ Players.PlayerAdded:Connect(function(plr)
     plr.CharacterAdded:Connect(function()
         task.wait(1)
         if ToggleStates.ESP then createPlayerESP(plr) end
+        if SPEED_SETTINGS.Enabled then createPlayerSpeedBB(plr) end
     end)
 end)
 
 Players.PlayerRemoving:Connect(function(plr)
     cleanupPlayerESP(plr)
+    removePlayerSpeedBB(plr)
     if PlayerAction.SpectateTarget == plr then stopSpectate() end
     if PlayerAction.FollowTarget == plr then stopFollow() end
     if pendingTP == plr then ConfirmOverlay.Visible = false; pendingTP = nil; PlayerAction.TPConfirmPending = false end
@@ -1685,54 +1919,46 @@ end
 
 createCategory("ℹ️ About", InfoContent, 1)
 mkInfo(string.format(
-    "<b>🔥 Obby Helper Pro v3.1</b>\n\n📱 %s | 👤 %s\n🆔 PlaceId: %d",
+    "<b>🔥 Obby Helper Pro v3.2</b>\n\n📱 %s | 👤 %s\n🆔 PlaceId: %d",
     isMobile and "Mobile" or "PC", player.Name, game.PlaceId
 ), InfoContent, 2)
 
-createCategory("✨ What's New in v3.1", InfoContent, 3)
+createCategory("⚡ Speed Meter Guide", InfoContent, 3)
 mkInfo(
-    "<b>👁️ Clean ESP:</b>\n" ..
-    "• Outline only (tidak solid/menutupi)\n" ..
-    "• Auto-scale teks berdasarkan jarak\n" ..
-    "• Auto-fade jika terlalu jauh\n" ..
-    "• Head dot kecil\n" ..
-    "• HP bar mini 3px\n" ..
-    "• Info compact: \"45m • 87%\"\n\n" ..
-    "<b>🛡️ Anti-AFK OP (5 Methods):</b>\n" ..
-    "• VirtualUser simulation\n" ..
-    "• Camera micro-nudge\n" ..
-    "• Heartbeat idle reset\n" ..
-    "• Auto dismiss AFK popup\n" ..
-    "• Character micro-movement\n" ..
-    "• Timer display\n\n" ..
-    "<b>🔧 Other Fixes:</b>\n" ..
-    "• Anti-Void saves last safe position\n" ..
-    "• Noclip more stable\n" ..
-    "• Server sort by player count\n" ..
-    "• Retry on server load fail\n" ..
-    "• Notification system\n" ..
-    "• Hover animations",
+    "<font color='#9696B4'>🔴 0-5 st/s = Diam</font>\n" ..
+    "<font color='#64DC64'>🚶 5-20 st/s = Normal Walk</font>\n" ..
+    "<font color='#FFC832'>🏃 20-50 st/s = Speed Boost</font>\n" ..
+    "<font color='#FF7832'>💨 50-100 st/s = Fast</font>\n" ..
+    "<font color='#FF3C3C'>⚡ 100+ st/s = Extreme / Hack</font>\n\n" ..
+    "• YOU badge = data kecepatan diri sendiri\n" ..
+    "• Bar biru = visual speed real-time\n" ..
+    "• Angka = studs per second",
     InfoContent, 4
 )
 
-createCategory("🎨 ESP Color Guide", InfoContent, 5)
+createCategory("📋 All Features v3.2", InfoContent, 5)
 mkInfo(
-    "<font color='#FF4646'>🔴 0-30m = Very Close</font>\n" ..
-    "<font color='#FFC83C'>🟡 31-80m = Close</font>\n" ..
-    "<font color='#64FF78'>🟢 81-200m = Medium</font>\n" ..
-    "<font color='#64B4FF'>🔵 201m+ = Far</font>\n\n" ..
-    "• Text & outline auto-shrink at distance\n" ..
-    "• Fade out beyond " .. ESP_SETTINGS.FadeStart .. "m\n" ..
-    "• Max range: " .. ESP_SETTINGS.MaxDistance .. "m",
+    "<b>Main:</b> ESP, Speed Meter, Obstacle, Speed, Jump,\n" ..
+    "Inf Jump, Noclip, Anti-Void, Fullbright\n\n" ..
+    "<b>Extra:</b> Anti-AFK, Auto Jump, Invisible, Big/Small\n\n" ..
+    "<b>Players:</b> TP (confirm), Spectate, Follow, Search\n\n" ..
+    "<b>Servers:</b> Refresh, Prev/Next, Random Join",
     InfoContent, 6
 )
 
 -- ════════════════════════════════════════════
--- CLEANUP / CLOSE
+-- CLOSE
 -- ════════════════════════════════════════════
 CloseBtn.MouseButton1Click:Connect(function()
-    stopAllActions(); stopAntiAFK()
-    if afkTimerThread then pcall(function() task.cancel(afkTimerThread) end) end
+    stopAllActions()
+
+    -- Cleanup Speed Meter
+    SPEED_SETTINGS.Enabled = false
+    if SelfSpeedData.billboard then
+        pcall(function() SelfSpeedData.billboard:Destroy() end)
+    end
+    for plr in pairs(SpeedData) do removePlayerSpeedBB(plr) end
+    SpeedData = {}
 
     for k, c in pairs(Connections) do
         pcall(function() if typeof(c) == "RBXScriptConnection" then c:Disconnect() end end)
@@ -1761,7 +1987,8 @@ CloseBtn.MouseButton1Click:Connect(function()
         end
     end)
 
-    ConfirmOverlay:Destroy(); ScreenGui:Destroy()
+    ConfirmOverlay:Destroy()
+    ScreenGui:Destroy()
 end)
 
 -- ════════════════════════════════════════════
@@ -1769,30 +1996,40 @@ end)
 -- ════════════════════════════════════════════
 player.CharacterAdded:Connect(function(char)
     local h = char:WaitForChild("Humanoid", 10)
-    if not h then return end; task.wait(0.5)
+    if not h then return end
+    task.wait(0.5)
+
     pcall(function()
         if ToggleStates.Speed then h.WalkSpeed = Settings.SpeedValue end
         if ToggleStates.Jump then h.UseJumpPower = true; h.JumpPower = Settings.JumpValue end
     end)
+
     if PlayerAction.IsSpectating and PlayerAction.SpectateTarget and PlayerAction.SpectateTarget.Character then
         pcall(function() Camera.CameraSubject = PlayerAction.SpectateTarget.Character:FindFirstChildOfClass("Humanoid") end)
     end
+
     if ToggleStates.ESP then
         task.wait(0.5)
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr ~= player and plr.Character and not ESP[plr] then createPlayerESP(plr) end
         end
     end
+
+    if SPEED_SETTINGS.Enabled then
+        task.wait(0.5)
+        createSelfSpeedBillboard()
+    end
 end)
 
 -- ════════════════════════════════════════════
 -- INIT
 -- ════════════════════════════════════════════
-switchTab("main"); displayPage()
-task.delay(0.8, function() showNotif("🔥 Obby Helper v3.1 Ready!", Color3.fromRGB(30, 40, 80)) end)
+switchTab("main")
+displayPage()
+task.delay(0.8, function() showNotif("🔥 Obby Helper v3.2 Ready!", Color3.fromRGB(30, 40, 80)) end)
 
 print("╔════════════════════════════════════╗")
-print("║  🔥 Obby Helper Pro v3.1           ║")
+print("║  🔥 Obby Helper Pro v3.2           ║")
+print("║  ⚡ Speed Meter Added!              ║")
 print("║  📱 " .. (isMobile and "Mobile" or "PC") .. " | 👤 " .. player.Name)
-print("║  ✅ Clean ESP + Anti-AFK OP         ║")
 print("╚════════════════════════════════════╝")
