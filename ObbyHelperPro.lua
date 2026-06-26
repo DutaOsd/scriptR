@@ -1107,132 +1107,30 @@ end, 33)
 -- ════════════════════════════════════════════
 createCategory("🤖 Auto Features", ExtraContent, 1)
 
--- Anti-AFK (OP - 5 Methods)
-local function stopAntiAFK()
-    AntiAFKEnabled = false
-    for _, t in pairs(antiAFKThreads) do pcall(function() task.cancel(t) end) end
-    antiAFKThreads = {}
-    for _, k in ipairs({"AntiAFK1","AntiAFK2","AntiAFK3"}) do
-        if Connections[k] then Connections[k]:Disconnect() Connections[k] = nil end
-    end
-end
-
-local function startAntiAFK()
-    AntiAFKEnabled = true
-
-    -- M1: VirtualUser
-    table.insert(antiAFKThreads, task.spawn(function()
-        local VU = game:GetService("VirtualUser")
-        while AntiAFKEnabled do
-            pcall(function()
-                VU:Button2Down(Vector2.new(0, 0), CFrame.new())
-                task.wait(0.1)
-                VU:Button2Up(Vector2.new(0, 0), CFrame.new())
-                VU:SetMousePosition(Vector2.new(math.random(100, 500), math.random(100, 400)))
-            end)
-            task.wait(math.random(25, 35))
-        end
-    end))
-
-    -- M2: Camera Nudge
-    table.insert(antiAFKThreads, task.spawn(function()
-        while AntiAFKEnabled do
-            pcall(function()
-                Camera.CFrame = Camera.CFrame * CFrame.Angles(
-                    math.rad(math.random(-1,1) * 0.001), math.rad(math.random(-1,1) * 0.001), 0
-                )
-            end)
-            task.wait(math.random(45, 60))
-        end
-    end))
-
-    -- M3: Heartbeat
-    local lastAct = tick()
-    Connections.AntiAFK1 = RunService.Heartbeat:Connect(function()
-        if not AntiAFKEnabled then return end
-        if tick() - lastAct >= 20 then
-            pcall(function()
-                game:GetService("VirtualUser"):CaptureController()
-                game:GetService("VirtualUser"):ClickButton1(Vector2.new(0, 0))
-            end)
-            lastAct = tick()
-        end
-    end)
-
-    -- M4: Dismiss popup
-    table.insert(antiAFKThreads, task.spawn(function()
-        while AntiAFKEnabled do
-            pcall(function()
-                local pg = player:FindFirstChild("PlayerGui")
-                if pg then
-                    for _, gui in ipairs(pg:GetDescendants()) do
-                        if gui:IsA("TextButton") then
-                            local t = gui.Text:lower()
-                            if t:find("ok") or t:find("dismiss") or t:find("continue") then
-                                gui:Activate()
-                            end
-                        end
-                    end
-                end
-            end)
-            task.wait(15)
-        end
-    end))
-
-    -- M5: Micro-move
-    table.insert(antiAFKThreads, task.spawn(function()
-        while AntiAFKEnabled do
-            pcall(function()
-                if player.Character then
-                    local h = player.Character:FindFirstChildOfClass("Humanoid")
-                    if h and h.Health > 0 then
-                        h:Move(Vector3.new(math.random(-1,1)*0.01, 0, math.random(-1,1)*0.01))
-                        task.wait(0.08)
-                        h:Move(Vector3.zero)
-                    end
-                end
-            end)
-            task.wait(math.random(55, 75))
-        end
-    end))
-end
+-- ════════════════════════════════════════════
+-- ANTI-AFK (SIMPLE - PROVEN WORKS)
+-- ════════════════════════════════════════════
 
 local AntiAFKToggle = createButton("❌ Anti-AFK: OFF", ExtraContent, nil, 2)
 
-local AntiAFKStatus = Instance.new("TextLabel")
-AntiAFKStatus.Size = UDim2.new(1, -4, 0, isMobile and 22 or 18)
-AntiAFKStatus.BackgroundTransparency = 1
-AntiAFKStatus.Text = ""
-AntiAFKStatus.TextColor3 = Color3.fromRGB(130, 255, 130)
-AntiAFKStatus.TextSize = isMobile and 11 or 9
-AntiAFKStatus.Font = Enum.Font.Gotham
-AntiAFKStatus.ZIndex = 3
-AntiAFKStatus.LayoutOrder = 3
-AntiAFKStatus.Parent = ExtraContent
-
 AntiAFKToggle.MouseButton1Click:Connect(function()
     ToggleStates.AntiAFK = not ToggleStates.AntiAFK
+    AntiAFKToggle.Text = ToggleStates.AntiAFK and "✅ Anti-AFK: ON" or "❌ Anti-AFK: OFF"
+    setToggleVisual(AntiAFKToggle, ToggleStates.AntiAFK)
 
     if ToggleStates.AntiAFK then
-        startAntiAFK()
-        AntiAFKToggle.Text = "✅ Anti-AFK: ON (5 Methods)"
-        setToggleVisual(AntiAFKToggle, true)
-        showNotif("🛡️ Anti-AFK: ON", Color3.fromRGB(20, 70, 35))
-
-        local startT = tick()
-        afkTimerThread = task.spawn(function()
-            while ToggleStates.AntiAFK do
-                local e = tick() - startT
-                AntiAFKStatus.Text = string.format("⏱️ Active: %02d:%02d | 5 methods", math.floor(e/60), math.floor(e%60))
-                task.wait(1)
-            end
+        Connections.AntiAFK = player.Idled:Connect(function()
+            local VU = game:GetService("VirtualUser")
+            VU:Button2Down(Vector2.new(0, 0), Camera.CFrame)
+            task.wait(1)
+            VU:Button2Up(Vector2.new(0, 0), Camera.CFrame)
         end)
+        showNotif("🛡️ Anti-AFK: ON", Color3.fromRGB(20, 70, 35))
     else
-        stopAntiAFK()
-        if afkTimerThread then pcall(function() task.cancel(afkTimerThread) end) end
-        AntiAFKToggle.Text = "❌ Anti-AFK: OFF"
-        setToggleVisual(AntiAFKToggle, false)
-        AntiAFKStatus.Text = ""
+        if Connections.AntiAFK then
+            Connections.AntiAFK:Disconnect()
+            Connections.AntiAFK = nil
+        end
         showNotif("🛡️ Anti-AFK: OFF", Color3.fromRGB(70, 20, 20))
     end
 end)
