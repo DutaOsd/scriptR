@@ -1,6 +1,7 @@
--- // Solara Hub V5 - All In One FIXED
+-- // Solara Hub V5 - FULLY FIXED & OPTIMIZED
 -- // Full Bright + Unlimited Zoom + HP Regen + Fly + ESP + Unlimited Jump
 -- // ESP FIXED + Custom Distance Colors + Danger Alert + Radar
+-- // FIXED: Memory Leak, Instance Spam, Deprecated API, Performance
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -9,8 +10,38 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
-local Mouse = LocalPlayer:GetMouse()
 local Camera = workspace.CurrentCamera
+
+-- ═══════════════════════════════════════════
+-- CONNECTION MANAGER (FIXED)
+-- ═══════════════════════════════════════════
+local ConnectionManager = {}
+ConnectionManager.__index = ConnectionManager
+
+function ConnectionManager.new()
+    return setmetatable({_connections = {}}, ConnectionManager)
+end
+
+function ConnectionManager:Add(name, connection)
+    self:Remove(name)
+    self._connections[name] = connection
+end
+
+function ConnectionManager:Remove(name)
+    if self._connections[name] then
+        pcall(function() self._connections[name]:Disconnect() end)
+        self._connections[name] = nil
+    end
+end
+
+function ConnectionManager:RemoveAll()
+    for _, conn in pairs(self._connections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    self._connections = {}
+end
+
+local connections = ConnectionManager.new()
 
 -- ═══════════════════════════════════════════
 -- CLEANUP OLD GUI
@@ -21,11 +52,13 @@ end)
 pcall(function()
     game:GetService("CoreGui"):FindFirstChild("SolaraESPv5"):Destroy()
 end)
+pcall(function()
+    workspace:FindFirstChild("SolaraESPParts"):Destroy()
+end)
 
 -- ═══════════════════════════════════════════
 -- VARIABLES
 -- ═══════════════════════════════════════════
-local connections = {}
 local Flying = false
 local FlyToggleState = false
 local FlySpeed = 50
@@ -35,49 +68,58 @@ local MaxSpeed = 0
 local BG, BV
 
 local ESPEnabled = false
-local ESPFolder = nil
 local ESPUpdateConn = nil
 local UnlimitedJumpEnabled = false
 local JumpConnection = nil
 
+-- Timer throttle untuk performance
+local espUpdateTimer = 0
+local radarUpdateTimer = 0
+local dangerUpdateTimer = 0
+
+-- Workspace folder untuk ESP parts (FIXED: tidak orphan)
+local ESPWorkspaceFolder = Instance.new("Folder")
+ESPWorkspaceFolder.Name = "SolaraESPParts"
+ESPWorkspaceFolder.Parent = workspace
+
 local originalValues = {
-    Brightness = Lighting.Brightness,
-    ClockTime = Lighting.ClockTime,
-    FogEnd = Lighting.FogEnd,
-    FogStart = Lighting.FogStart,
-    GlobalShadows = Lighting.GlobalShadows,
+    Brightness     = Lighting.Brightness,
+    ClockTime      = Lighting.ClockTime,
+    FogEnd         = Lighting.FogEnd,
+    FogStart       = Lighting.FogStart,
+    GlobalShadows  = Lighting.GlobalShadows,
     OutdoorAmbient = Lighting.OutdoorAmbient,
-    MaxZoom = LocalPlayer.CameraMaxZoomDistance,
-    MinZoom = LocalPlayer.CameraMinZoomDistance,
+    MaxZoom        = LocalPlayer.CameraMaxZoomDistance,
+    MinZoom        = LocalPlayer.CameraMinZoomDistance,
 }
 
+-- FIXED: Simpan parent asli effect
 local RemovedEffects = {}
 
 -- ═══════════════════════════════════════════
--- ESP DISTANCE COLOR SYSTEM (CUSTOM)
--- Merah: 0-200 studs (DANGER)
--- Kuning: 201-300 studs (WARNING)
--- Hijau: 301-600 studs (MEDIUM)
--- Biru: 601+ studs (FAR/SAFE)
+-- ESP SETTINGS
 -- ═══════════════════════════════════════════
 local ESPSettings = {
-    MaxDistance = 1500,
-    ShowBox = true,
-    ShowName = true,
-    ShowHealth = true,
+    MaxDistance  = 1500,
+    ShowBox      = true,
+    ShowName     = true,
+    ShowHealth   = true,
     ShowDistance = true,
-    ShowTracer = false,
+    ShowTracer   = false,
 }
 
+-- ═══════════════════════════════════════════
+-- HELPER FUNCTIONS
+-- ═══════════════════════════════════════════
 local function GetDistanceColor(distance)
     if distance <= 200 then
-        return Color3.fromRGB(255, 50, 50) -- MERAH
+        return Color3.fromRGB(255, 50, 50)
     elseif distance <= 300 then
-        return Color3.fromRGB(255, 220, 0) -- KUNING
+        return Color3.fromRGB(255, 220, 0)
     elseif distance <= 600 then
-        return Color3.fromRGB(50, 255, 80) -- HIJAU
+        return Color3.fromRGB(50, 255, 80)
     else
-        return Color3.fromRGB(60, 160, 255) -- BIRU
+        return Color3.fromRGB(60, 160, 255)
     end
 end
 
@@ -108,9 +150,7 @@ ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 ScreenGui.Parent = game:GetService("CoreGui")
 
--- ═══════════════════════════════════════════
 -- ESP GUI (terpisah)
--- ═══════════════════════════════════════════
 local ESPGui = Instance.new("ScreenGui")
 ESPGui.Name = "SolaraESPv5"
 ESPGui.ResetOnSpawn = false
@@ -137,13 +177,17 @@ MiniStroke.Color = Color3.fromRGB(130, 100, 255)
 MiniStroke.Thickness = 2
 MiniStroke.Parent = MiniIcon
 
-spawn(function()
+task.spawn(function()
     while ScreenGui.Parent do
         if MiniIcon.Visible then
-            TweenService:Create(MiniStroke, TweenInfo.new(1, Enum.EasingStyle.Sine), {Color = Color3.fromRGB(200, 170, 255)}):Play()
+            TweenService:Create(MiniStroke, TweenInfo.new(1, Enum.EasingStyle.Sine), {
+                Color = Color3.fromRGB(200, 170, 255)
+            }):Play()
             task.wait(1)
             if MiniIcon.Visible then
-                TweenService:Create(MiniStroke, TweenInfo.new(1, Enum.EasingStyle.Sine), {Color = Color3.fromRGB(130, 100, 255)}):Play()
+                TweenService:Create(MiniStroke, TweenInfo.new(1, Enum.EasingStyle.Sine), {
+                    Color = Color3.fromRGB(130, 100, 255)
+                }):Play()
             end
         end
         task.wait(1)
@@ -217,7 +261,7 @@ Sep.BackgroundTransparency = 0.6
 Sep.BorderSizePixel = 0
 Sep.Parent = TitleBar
 
--- Close
+-- Close Button
 local CloseBtn = Instance.new("TextButton")
 CloseBtn.Size = UDim2.new(0, 30, 0, 30)
 CloseBtn.Position = UDim2.new(1, -38, 0, 8)
@@ -231,7 +275,7 @@ CloseBtn.AutoButtonColor = false
 CloseBtn.Parent = TitleBar
 Instance.new("UICorner", CloseBtn).CornerRadius = UDim.new(0, 8)
 
--- Minimize
+-- Minimize Button
 local MinBtn = Instance.new("TextButton")
 MinBtn.Size = UDim2.new(0, 30, 0, 30)
 MinBtn.Position = UDim2.new(1, -74, 0, 8)
@@ -246,7 +290,7 @@ MinBtn.Parent = TitleBar
 Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 8)
 
 -- ═══════════════════════════════════════════
--- CONTENT
+-- CONTENT SCROLL
 -- ═══════════════════════════════════════════
 local Content = Instance.new("ScrollingFrame")
 Content.Size = UDim2.new(1, -20, 1, -65)
@@ -264,10 +308,12 @@ ListLayout.Padding = UDim.new(0, 10)
 ListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 ListLayout.Parent = Content
 
-Instance.new("UIPadding", Content).PaddingBottom = UDim.new(0, 15)
+local ContentPad = Instance.new("UIPadding")
+ContentPad.PaddingBottom = UDim.new(0, 15)
+ContentPad.Parent = Content
 
 -- ═══════════════════════════════════════════
--- STATUS
+-- STATUS BAR
 -- ═══════════════════════════════════════════
 local StatusFrame = Instance.new("Frame")
 StatusFrame.Size = UDim2.new(1, 0, 0, 28)
@@ -339,8 +385,8 @@ local function CreateToggle(title, desc, order, callback)
     FS.Color = Color3.fromRGB(45, 45, 65)
     FS.Thickness = 1
 
-    Instance.new("TextLabel", F).Size = UDim2.new(0.65, 0, 0, 28)
-    local TL = F:FindFirstChildOfClass("TextLabel")
+    local TL = Instance.new("TextLabel", F)
+    TL.Size = UDim2.new(0.65, 0, 0, 28)
     TL.Position = UDim2.new(0, 14, 0, 8)
     TL.BackgroundTransparency = 1
     TL.Text = title
@@ -383,20 +429,34 @@ local function CreateToggle(title, desc, order, callback)
     Btn.MouseButton1Click:Connect(function()
         toggled = not toggled
         if toggled then
-            TweenService:Create(SBG, TweenInfo.new(0.3, Enum.EasingStyle.Quart), {BackgroundColor3 = Color3.fromRGB(80, 200, 120)}):Play()
-            TweenService:Create(SC, TweenInfo.new(0.3, Enum.EasingStyle.Quart), {Position = UDim2.new(1, -23, 0.5, -10), BackgroundColor3 = Color3.new(1, 1, 1)}):Play()
-            TweenService:Create(FS, TweenInfo.new(0.3), {Color = Color3.fromRGB(80, 200, 120)}):Play()
+            TweenService:Create(SBG, TweenInfo.new(0.3, Enum.EasingStyle.Quart), {
+                BackgroundColor3 = Color3.fromRGB(80, 200, 120)
+            }):Play()
+            TweenService:Create(SC, TweenInfo.new(0.3, Enum.EasingStyle.Quart), {
+                Position = UDim2.new(1, -23, 0.5, -10),
+                BackgroundColor3 = Color3.new(1, 1, 1)
+            }):Play()
+            TweenService:Create(FS, TweenInfo.new(0.3), {
+                Color = Color3.fromRGB(80, 200, 120)
+            }):Play()
         else
-            TweenService:Create(SBG, TweenInfo.new(0.3, Enum.EasingStyle.Quart), {BackgroundColor3 = Color3.fromRGB(55, 55, 75)}):Play()
-            TweenService:Create(SC, TweenInfo.new(0.3, Enum.EasingStyle.Quart), {Position = UDim2.new(0, 3, 0.5, -10), BackgroundColor3 = Color3.fromRGB(180, 180, 190)}):Play()
-            TweenService:Create(FS, TweenInfo.new(0.3), {Color = Color3.fromRGB(45, 45, 65)}):Play()
+            TweenService:Create(SBG, TweenInfo.new(0.3, Enum.EasingStyle.Quart), {
+                BackgroundColor3 = Color3.fromRGB(55, 55, 75)
+            }):Play()
+            TweenService:Create(SC, TweenInfo.new(0.3, Enum.EasingStyle.Quart), {
+                Position = UDim2.new(0, 3, 0.5, -10),
+                BackgroundColor3 = Color3.fromRGB(180, 180, 190)
+            }):Play()
+            TweenService:Create(FS, TweenInfo.new(0.3), {
+                Color = Color3.fromRGB(45, 45, 65)
+            }):Play()
         end
         callback(toggled)
     end)
 end
 
 -- ═══════════════════════════════════════════
--- SLIDER CREATOR
+-- SLIDER CREATOR (FIXED: Touch Support)
 -- ═══════════════════════════════════════════
 local function CreateSlider(title, min, max, default, order, callback)
     local F = Instance.new("Frame")
@@ -458,34 +518,67 @@ local function CreateSlider(title, min, max, default, order, callback)
     SBtn.Text = ""
 
     local sliding = false
-    SBtn.MouseButton1Down:Connect(function() sliding = true end)
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then sliding = false end
+
+    local function UpdateSlider(xPos)
+        local r = math.clamp((xPos - SBG.AbsolutePosition.X) / SBG.AbsoluteSize.X, 0, 1)
+        local value = math.floor(min + (max - min) * r)
+        SF.Size = UDim2.new(r, 0, 1, 0)
+        SCi.Position = UDim2.new(r, -9, 0.5, -9)
+        VL.Text = tostring(value)
+        callback(value)
+    end
+
+    -- Mouse Support
+    SBtn.MouseButton1Down:Connect(function()
+        sliding = true
     end)
+
+    -- Touch Support (FIXED)
+    SBtn.TouchLongPress:Connect(function()
+        sliding = true
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            sliding = false
+        end
+    end)
+
     UserInputService.InputChanged:Connect(function(input)
-        if sliding and input.UserInputType == Enum.UserInputType.MouseMovement then
-            local r = math.clamp((input.Position.X - SBG.AbsolutePosition.X) / SBG.AbsoluteSize.X, 0, 1)
-            local value = math.floor(min + (max - min) * r)
-            SF.Size = UDim2.new(r, 0, 1, 0)
-            SCi.Position = UDim2.new(r, -9, 0.5, -9)
-            VL.Text = tostring(value)
-            callback(value)
+        if not sliding then return end
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+            UpdateSlider(input.Position.X)
         end
     end)
 end
 
 -- ═══════════════════════════════════════════
--- ESP SYSTEM (FIXED - BillboardGui Method)
+-- ESP SYSTEM (FULLY FIXED)
 -- ═══════════════════════════════════════════
 local espBillboards = {}
 
+-- FIXED: Proper cleanup termasuk connections dan workspace parts
 local function RemovePlayerESP(player)
-    if espBillboards[player] then
-        for _, obj in pairs(espBillboards[player]) do
+    if not espBillboards[player] then return end
+
+    local espData = espBillboards[player]
+
+    -- Disconnect CharacterAdded connection (FIXED memory leak)
+    if espData.CharConn then
+        pcall(function() espData.CharConn:Disconnect() end)
+    end
+
+    -- Destroy semua instance
+    local skipKeys = {CharConn = true}
+    for key, obj in pairs(espData) do
+        if not skipKeys[key] then
             pcall(function() obj:Destroy() end)
         end
-        espBillboards[player] = nil
     end
+
+    espBillboards[player] = nil
 end
 
 local function CreatePlayerESP(player)
@@ -495,171 +588,182 @@ local function CreatePlayerESP(player)
     local function Setup(character)
         if not character then return end
 
-        local hrp = character:WaitForChild("HumanoidRootPart", 5)
-        local head = character:WaitForChild("Head", 5)
-        local hum = character:WaitForChild("Humanoid", 5)
-        if not hrp or not head or not hum then return end
+        -- FIXED: Error protection dengan pcall
+        local success, err = pcall(function()
+            local hrp  = character:WaitForChild("HumanoidRootPart", 5)
+            local head = character:WaitForChild("Head", 5)
+            local hum  = character:WaitForChild("Humanoid", 5)
+            if not hrp or not head or not hum then return end
 
-        local espParts = {}
-        espBillboards[player] = espParts
+            -- Pastikan data table sudah ada
+            if not espBillboards[player] then
+                espBillboards[player] = {}
+            end
+            local espParts = espBillboards[player]
 
-        -- ══════ HIGHLIGHT (Through Wall) ══════
-        local highlight = Instance.new("Highlight")
-        highlight.Name = "SolaraESP"
-        highlight.FillTransparency = 0.7
-        highlight.OutlineTransparency = 0.1
-        highlight.FillColor = Color3.fromRGB(255, 50, 50)
-        highlight.OutlineColor = Color3.fromRGB(255, 50, 50)
-        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        highlight.Adornee = character
-        highlight.Parent = ESPGui
-        espParts.Highlight = highlight
+            -- ══════ HIGHLIGHT ══════
+            local highlight = Instance.new("Highlight")
+            highlight.Name = "SolaraESP_" .. player.Name
+            highlight.FillTransparency = 0.7
+            highlight.OutlineTransparency = 0.1
+            highlight.FillColor = Color3.fromRGB(255, 50, 50)
+            highlight.OutlineColor = Color3.fromRGB(255, 50, 50)
+            highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            highlight.Adornee = character
+            highlight.Parent = ESPGui
+            espParts.Highlight = highlight
 
-        -- ══════ BILLBOARD INFO ══════
-        local billboard = Instance.new("BillboardGui")
-        billboard.Name = "SolaraESPInfo"
-        billboard.Adornee = head
-        billboard.Size = UDim2.new(0, 200, 0, 100)
-        billboard.StudsOffset = Vector3.new(0, 3, 0)
-        billboard.AlwaysOnTop = true
-        billboard.LightInfluence = 0
-        billboard.MaxDistance = ESPSettings.MaxDistance
-        billboard.Parent = ESPGui
-        espParts.Billboard = billboard
+            -- ══════ BILLBOARD INFO ══════
+            local billboard = Instance.new("BillboardGui")
+            billboard.Name = "SolaraESPInfo_" .. player.Name
+            billboard.Adornee = head
+            billboard.Size = UDim2.new(0, 200, 0, 100)
+            billboard.StudsOffset = Vector3.new(0, 3, 0)
+            billboard.AlwaysOnTop = true
+            billboard.LightInfluence = 0
+            billboard.MaxDistance = ESPSettings.MaxDistance
+            billboard.Parent = ESPGui
+            espParts.Billboard = billboard
 
-        -- Player Name Label
-        local nameLabel = Instance.new("TextLabel")
-        nameLabel.Size = UDim2.new(1, 0, 0, 20)
-        nameLabel.Position = UDim2.new(0, 0, 0, 0)
-        nameLabel.BackgroundTransparency = 1
-        nameLabel.Text = player.Name
-        nameLabel.TextSize = 14
-        nameLabel.Font = Enum.Font.GothamBold
-        nameLabel.TextColor3 = Color3.new(1, 1, 1)
-        nameLabel.TextStrokeTransparency = 0.3
-        nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-        nameLabel.Parent = billboard
-        espParts.NameLabel = nameLabel
+            -- Name Label
+            local nameLabel = Instance.new("TextLabel")
+            nameLabel.Size = UDim2.new(1, 0, 0, 20)
+            nameLabel.Position = UDim2.new(0, 0, 0, 0)
+            nameLabel.BackgroundTransparency = 1
+            nameLabel.Text = player.Name
+            nameLabel.TextSize = 14
+            nameLabel.Font = Enum.Font.GothamBold
+            nameLabel.TextColor3 = Color3.new(1, 1, 1)
+            nameLabel.TextStrokeTransparency = 0.3
+            nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+            nameLabel.Parent = billboard
+            espParts.NameLabel = nameLabel
 
-        -- Distance Label
-        local distLabel = Instance.new("TextLabel")
-        distLabel.Size = UDim2.new(1, 0, 0, 16)
-        distLabel.Position = UDim2.new(0, 0, 0, 20)
-        distLabel.BackgroundTransparency = 1
-        distLabel.Text = "[0m]"
-        distLabel.TextSize = 12
-        distLabel.Font = Enum.Font.GothamBold
-        distLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-        distLabel.TextStrokeTransparency = 0.3
-        distLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-        distLabel.Parent = billboard
-        espParts.DistLabel = distLabel
+            -- Distance Label
+            local distLabel = Instance.new("TextLabel")
+            distLabel.Size = UDim2.new(1, 0, 0, 16)
+            distLabel.Position = UDim2.new(0, 0, 0, 20)
+            distLabel.BackgroundTransparency = 1
+            distLabel.Text = "[0m]"
+            distLabel.TextSize = 12
+            distLabel.Font = Enum.Font.GothamBold
+            distLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+            distLabel.TextStrokeTransparency = 0.3
+            distLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+            distLabel.Parent = billboard
+            espParts.DistLabel = distLabel
 
-        -- Danger Status Label
-        local dangerLabel = Instance.new("TextLabel")
-        dangerLabel.Size = UDim2.new(1, 0, 0, 16)
-        dangerLabel.Position = UDim2.new(0, 0, 0, 36)
-        dangerLabel.BackgroundTransparency = 1
-        dangerLabel.Text = ""
-        dangerLabel.TextSize = 12
-        dangerLabel.Font = Enum.Font.GothamBold
-        dangerLabel.TextStrokeTransparency = 0.3
-        dangerLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-        dangerLabel.Parent = billboard
-        espParts.DangerLabel = dangerLabel
+            -- Danger Label
+            local dangerLabel = Instance.new("TextLabel")
+            dangerLabel.Size = UDim2.new(1, 0, 0, 16)
+            dangerLabel.Position = UDim2.new(0, 0, 0, 36)
+            dangerLabel.BackgroundTransparency = 1
+            dangerLabel.Text = ""
+            dangerLabel.TextSize = 12
+            dangerLabel.Font = Enum.Font.GothamBold
+            dangerLabel.TextStrokeTransparency = 0.3
+            dangerLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+            dangerLabel.Parent = billboard
+            espParts.DangerLabel = dangerLabel
 
-        -- Health Bar Background
-        local hpBG = Instance.new("Frame")
-        hpBG.Size = UDim2.new(0.8, 0, 0, 6)
-        hpBG.Position = UDim2.new(0.1, 0, 0, 56)
-        hpBG.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-        hpBG.BorderSizePixel = 0
-        hpBG.Parent = billboard
-        Instance.new("UICorner", hpBG).CornerRadius = UDim.new(1, 0)
-        espParts.HpBG = hpBG
+            -- HP Bar Background
+            local hpBG = Instance.new("Frame")
+            hpBG.Size = UDim2.new(0.8, 0, 0, 6)
+            hpBG.Position = UDim2.new(0.1, 0, 0, 56)
+            hpBG.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+            hpBG.BorderSizePixel = 0
+            hpBG.Parent = billboard
+            Instance.new("UICorner", hpBG).CornerRadius = UDim.new(1, 0)
+            espParts.HpBG = hpBG
 
-        local hpFill = Instance.new("Frame")
-        hpFill.Size = UDim2.new(1, 0, 1, 0)
-        hpFill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
-        hpFill.BorderSizePixel = 0
-        hpFill.Parent = hpBG
-        Instance.new("UICorner", hpFill).CornerRadius = UDim.new(1, 0)
-        espParts.HpFill = hpFill
+            local hpFill = Instance.new("Frame")
+            hpFill.Size = UDim2.new(1, 0, 1, 0)
+            hpFill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+            hpFill.BorderSizePixel = 0
+            hpFill.Parent = hpBG
+            Instance.new("UICorner", hpFill).CornerRadius = UDim.new(1, 0)
+            espParts.HpFill = hpFill
 
-        -- HP Text
-        local hpText = Instance.new("TextLabel")
-        hpText.Size = UDim2.new(1, 0, 0, 14)
-        hpText.Position = UDim2.new(0, 0, 0, 64)
-        hpText.BackgroundTransparency = 1
-        hpText.TextSize = 10
-        hpText.Font = Enum.Font.Gotham
-        hpText.TextStrokeTransparency = 0.3
-        hpText.TextStrokeColor3 = Color3.new(0, 0, 0)
-        hpText.Parent = billboard
-        espParts.HpText = hpText
+            -- HP Text
+            local hpText = Instance.new("TextLabel")
+            hpText.Size = UDim2.new(1, 0, 0, 14)
+            hpText.Position = UDim2.new(0, 0, 0, 64)
+            hpText.BackgroundTransparency = 1
+            hpText.TextSize = 10
+            hpText.Font = Enum.Font.Gotham
+            hpText.TextStrokeTransparency = 0.3
+            hpText.TextStrokeColor3 = Color3.new(0, 0, 0)
+            hpText.Parent = billboard
+            espParts.HpText = hpText
 
-        -- ══════ BOX HIGHLIGHT (Selection Box) ══════
-        local selectionBox = Instance.new("SelectionBox")
-        selectionBox.Adornee = character
-        selectionBox.Color3 = Color3.fromRGB(255, 50, 50)
-        selectionBox.LineThickness = 0.03
-        selectionBox.SurfaceTransparency = 0.9
-        selectionBox.SurfaceColor3 = Color3.fromRGB(255, 50, 50)
-        selectionBox.Parent = ESPGui
-        espParts.SelectionBox = selectionBox
+            -- ══════ SELECTION BOX ══════
+            local selectionBox = Instance.new("SelectionBox")
+            selectionBox.Adornee = character
+            selectionBox.Color3 = Color3.fromRGB(255, 50, 50)
+            selectionBox.LineThickness = 0.03
+            selectionBox.SurfaceTransparency = 0.9
+            selectionBox.SurfaceColor3 = Color3.fromRGB(255, 50, 50)
+            selectionBox.Parent = ESPGui
+            espParts.SelectionBox = selectionBox
 
-        -- ══════ HEAD DOT ══════
-        local headAdorn = Instance.new("BillboardGui")
-        headAdorn.Name = "HeadDot"
-        headAdorn.Adornee = head
-        headAdorn.Size = UDim2.new(1, 0, 1, 0)
-        headAdorn.AlwaysOnTop = true
-        headAdorn.LightInfluence = 0
-        headAdorn.MaxDistance = ESPSettings.MaxDistance
-        headAdorn.Parent = ESPGui
-        espParts.HeadAdorn = headAdorn
+            -- ══════ HEAD DOT ══════
+            local headAdorn = Instance.new("BillboardGui")
+            headAdorn.Name = "SolaraHeadDot_" .. player.Name
+            headAdorn.Adornee = head
+            headAdorn.Size = UDim2.new(1, 0, 1, 0)
+            headAdorn.AlwaysOnTop = true
+            headAdorn.LightInfluence = 0
+            headAdorn.MaxDistance = ESPSettings.MaxDistance
+            headAdorn.Parent = ESPGui
+            espParts.HeadAdorn = headAdorn
 
-        local headCircle = Instance.new("Frame")
-        headCircle.Size = UDim2.new(0.5, 0, 0.5, 0)
-        headCircle.Position = UDim2.new(0.25, 0, 0.25, 0)
-        headCircle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-        headCircle.BorderSizePixel = 0
-        headCircle.Parent = headAdorn
-        Instance.new("UICorner", headCircle).CornerRadius = UDim.new(1, 0)
-        espParts.HeadCircle = headCircle
+            local headCircle = Instance.new("Frame")
+            headCircle.Size = UDim2.new(0.5, 0, 0.5, 0)
+            headCircle.Position = UDim2.new(0.25, 0, 0.25, 0)
+            headCircle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            headCircle.BorderSizePixel = 0
+            headCircle.Parent = headAdorn
+            Instance.new("UICorner", headCircle).CornerRadius = UDim.new(1, 0)
+            espParts.HeadCircle = headCircle
 
-        -- ══════ BEAM TRACER ══════
-        local tracerAttachment0 = Instance.new("Attachment")
-        tracerAttachment0.Parent = hrp
-        espParts.TracerAtt0 = tracerAttachment0
+            -- ══════ TRACER BEAM ══════
+            -- FIXED: TracerPart diparent ke ESPWorkspaceFolder bukan workspace langsung
+            local tracerAttachment0 = Instance.new("Attachment")
+            tracerAttachment0.Parent = hrp
+            espParts.TracerAtt0 = tracerAttachment0
 
-        local tracerPart = Instance.new("Part")
-        tracerPart.Name = "SolaraTracerAnchor"
-        tracerPart.Anchored = true
-        tracerPart.CanCollide = false
-        tracerPart.Transparency = 1
-        tracerPart.Size = Vector3.new(0.1, 0.1, 0.1)
-        tracerPart.Parent = workspace
-        espParts.TracerPart = tracerPart
+            local tracerPart = Instance.new("Part")
+            tracerPart.Name = "SolaraTracerAnchor_" .. player.Name
+            tracerPart.Anchored = true
+            tracerPart.CanCollide = false
+            tracerPart.Transparency = 1
+            tracerPart.Size = Vector3.new(0.1, 0.1, 0.1)
+            tracerPart.Parent = ESPWorkspaceFolder -- FIXED: bukan workspace!
+            espParts.TracerPart = tracerPart
 
-        local tracerAttachment1 = Instance.new("Attachment")
-        tracerAttachment1.Parent = tracerPart
-        espParts.TracerAtt1 = tracerAttachment1
+            local tracerAttachment1 = Instance.new("Attachment")
+            tracerAttachment1.Parent = tracerPart
+            espParts.TracerAtt1 = tracerAttachment1
 
-        local beam = Instance.new("Beam")
-        beam.Attachment0 = tracerAttachment1
-        beam.Attachment1 = tracerAttachment0
-        beam.Width0 = 0.1
-        beam.Width1 = 0.1
-        beam.FaceCamera = true
-        beam.Transparency = NumberSequence.new(0.5)
-        beam.LightEmission = 1
-        beam.Enabled = ESPSettings.ShowTracer
-        beam.Parent = hrp
-        espParts.Beam = beam
+            local beam = Instance.new("Beam")
+            beam.Attachment0 = tracerAttachment1
+            beam.Attachment1 = tracerAttachment0
+            beam.Width0 = 0.1
+            beam.Width1 = 0.1
+            beam.FaceCamera = true
+            beam.Transparency = NumberSequence.new(0.5)
+            beam.LightEmission = 1
+            beam.Enabled = ESPSettings.ShowTracer
+            beam.Parent = hrp
+            espParts.Beam = beam
+        end)
+
+        if not success then
+            warn("[Solara ESP] Setup error: " .. tostring(err))
+        end
     end
 
-    -- Setup langsung
+    -- Setup langsung jika sudah ada karakter
     if player.Character then
         Setup(player.Character)
     end
@@ -669,10 +773,12 @@ local function CreatePlayerESP(player)
         task.wait(1)
         if ESPEnabled then
             RemovePlayerESP(player)
+            espBillboards[player] = {}
             Setup(char)
         end
     end)
 
+    -- Simpan connection FIXED
     if not espBillboards[player] then
         espBillboards[player] = {}
     end
@@ -680,7 +786,7 @@ local function CreatePlayerESP(player)
 end
 
 -- ═══════════════════════════════════════════
--- ESP AUTO UPDATE LOOP
+-- ESP UPDATE LOOP (FIXED: Throttled, bukan tiap frame)
 -- ═══════════════════════════════════════════
 local function UpdateAllESP()
     local localChar = LocalPlayer.Character
@@ -701,102 +807,81 @@ local function UpdateAllESP()
         local hum = char:FindFirstChildOfClass("Humanoid")
         if not hrp or not hum then continue end
 
-        local distance = (hrp.Position - localHRP.Position).Magnitude
-        local distColor = GetDistanceColor(distance)
-        local distLabel = GetDistanceLabel(distance)
-        local hpPercent = math.clamp(hum.Health / hum.MaxHealth, 0, 1)
-        local hpColor = GetHealthColor(hpPercent)
+        local distance   = (hrp.Position - localHRP.Position).Magnitude
+        local distColor  = GetDistanceColor(distance)
+        local distLbl    = GetDistanceLabel(distance)
+        local hpPercent  = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+        local hpColor    = GetHealthColor(hpPercent)
+        local isAlive    = hum.Health > 0
 
-        -- Update Highlight
         if espData.Highlight then
-            espData.Highlight.FillColor = distColor
+            espData.Highlight.FillColor    = distColor
             espData.Highlight.OutlineColor = distColor
-            espData.Highlight.Enabled = (hum.Health > 0)
+            espData.Highlight.Enabled      = isAlive
         end
 
-        -- Update Selection Box
         if espData.SelectionBox then
-            espData.SelectionBox.Color3 = distColor
+            espData.SelectionBox.Color3        = distColor
             espData.SelectionBox.SurfaceColor3 = distColor
-            espData.SelectionBox.Visible = (hum.Health > 0)
+            espData.SelectionBox.Visible       = isAlive
         end
 
-        -- Update Name
         if espData.NameLabel then
             espData.NameLabel.TextColor3 = distColor
-            espData.NameLabel.Text = player.Name
         end
 
-        -- Update Distance
         if espData.DistLabel then
-            espData.DistLabel.Text = "[" .. math.floor(distance) .. " studs]"
+            espData.DistLabel.Text       = "[" .. math.floor(distance) .. " studs]"
             espData.DistLabel.TextColor3 = distColor
         end
 
-        -- Update Danger Label
         if espData.DangerLabel then
-            espData.DangerLabel.Text = distLabel
+            espData.DangerLabel.Text       = distLbl
             espData.DangerLabel.TextColor3 = distColor
         end
 
-        -- Update HP Bar
         if espData.HpFill then
-            espData.HpFill.Size = UDim2.new(hpPercent, 0, 1, 0)
+            espData.HpFill.Size            = UDim2.new(hpPercent, 0, 1, 0)
             espData.HpFill.BackgroundColor3 = hpColor
         end
 
-        -- Update HP Text
         if espData.HpText then
-            espData.HpText.Text = math.floor(hum.Health) .. " / " .. math.floor(hum.MaxHealth)
+            espData.HpText.Text       = math.floor(hum.Health) .. " / " .. math.floor(hum.MaxHealth)
             espData.HpText.TextColor3 = hpColor
         end
 
-        -- Update Head Circle
         if espData.HeadCircle then
             espData.HeadCircle.BackgroundColor3 = distColor
         end
 
-        -- Update Billboard visibility
         if espData.Billboard then
-            espData.Billboard.Enabled = (hum.Health > 0)
+            espData.Billboard.Enabled    = isAlive
             espData.Billboard.MaxDistance = ESPSettings.MaxDistance
         end
+
         if espData.HeadAdorn then
-            espData.HeadAdorn.Enabled = (hum.Health > 0)
+            espData.HeadAdorn.Enabled    = isAlive
             espData.HeadAdorn.MaxDistance = ESPSettings.MaxDistance
         end
 
-        -- Update Tracer
         if espData.Beam then
-            espData.Beam.Enabled = ESPSettings.ShowTracer and (hum.Health > 0)
-            espData.Beam.Color = ColorSequence.new(distColor)
+            espData.Beam.Enabled = ESPSettings.ShowTracer and isAlive
+            espData.Beam.Color   = ColorSequence.new(distColor)
         end
 
-        -- Update Tracer Part position (kaki player lokal)
+        -- Update tracer anchor position
         if espData.TracerPart then
             espData.TracerPart.CFrame = CFrame.new(localHRP.Position - Vector3.new(0, 3, 0))
         end
     end
 end
 
--- Auto handle new players
-Players.PlayerAdded:Connect(function(player)
-    if ESPEnabled then
-        task.wait(2)
-        CreatePlayerESP(player)
-    end
-end)
-
-Players.PlayerRemoving:Connect(function(player)
-    RemovePlayerESP(player)
-end)
-
 -- ═══════════════════════════════════════════
 -- DANGER ALERT SYSTEM
 -- ═══════════════════════════════════════════
 local AlertFrame = Instance.new("Frame")
-AlertFrame.Size = UDim2.new(0, 300, 0, 55)
-AlertFrame.Position = UDim2.new(0.5, -150, 0, 20)
+AlertFrame.Size = UDim2.new(0, 320, 0, 55)
+AlertFrame.Position = UDim2.new(0.5, -160, 0, 20)
 AlertFrame.BackgroundColor3 = Color3.fromRGB(180, 25, 25)
 AlertFrame.BackgroundTransparency = 0.2
 AlertFrame.BorderSizePixel = 0
@@ -804,10 +889,10 @@ AlertFrame.Visible = false
 AlertFrame.Parent = ESPGui
 Instance.new("UICorner", AlertFrame).CornerRadius = UDim.new(0, 12)
 
-local AlertStroke2 = Instance.new("UIStroke")
-AlertStroke2.Color = Color3.fromRGB(255, 60, 60)
-AlertStroke2.Thickness = 2
-AlertStroke2.Parent = AlertFrame
+local AlertStroke = Instance.new("UIStroke")
+AlertStroke.Color = Color3.fromRGB(255, 60, 60)
+AlertStroke.Thickness = 2
+AlertStroke.Parent = AlertFrame
 
 local AlertText = Instance.new("TextLabel")
 AlertText.Size = UDim2.new(1, 0, 1, 0)
@@ -820,12 +905,17 @@ AlertText.TextStrokeTransparency = 0.5
 AlertText.Parent = AlertFrame
 
 local alertActive = false
-spawn(function()
+
+task.spawn(function()
     while ESPGui.Parent do
         if alertActive and AlertFrame.Visible then
-            TweenService:Create(AlertFrame, TweenInfo.new(0.4, Enum.EasingStyle.Sine), {BackgroundTransparency = 0.05}):Play()
+            TweenService:Create(AlertFrame, TweenInfo.new(0.4, Enum.EasingStyle.Sine), {
+                BackgroundTransparency = 0.05
+            }):Play()
             task.wait(0.4)
-            TweenService:Create(AlertFrame, TweenInfo.new(0.4, Enum.EasingStyle.Sine), {BackgroundTransparency = 0.5}):Play()
+            TweenService:Create(AlertFrame, TweenInfo.new(0.4, Enum.EasingStyle.Sine), {
+                BackgroundTransparency = 0.5
+            }):Play()
             task.wait(0.4)
         else
             task.wait(0.3)
@@ -835,9 +925,17 @@ end)
 
 local function CheckDangerAlert()
     local localChar = LocalPlayer.Character
-    if not localChar then AlertFrame.Visible = false; alertActive = false return end
+    if not localChar then
+        AlertFrame.Visible = false
+        alertActive = false
+        return
+    end
     local localHRP = localChar:FindFirstChild("HumanoidRootPart")
-    if not localHRP then AlertFrame.Visible = false; alertActive = false return end
+    if not localHRP then
+        AlertFrame.Visible = false
+        alertActive = false
+        return
+    end
 
     local closestDist = math.huge
     local closestName = ""
@@ -867,7 +965,7 @@ local function CheckDangerAlert()
         if dangerCount == 1 then
             AlertText.Text = "⚠️ DANGER! " .. closestName .. " [" .. math.floor(closestDist) .. " studs]"
         else
-            AlertText.Text = "⚠️ DANGER! " .. dangerCount .. " Players within 200 studs!"
+            AlertText.Text = "⚠️ " .. dangerCount .. " Players within 200 studs!"
         end
     else
         alertActive = false
@@ -876,7 +974,7 @@ local function CheckDangerAlert()
 end
 
 -- ═══════════════════════════════════════════
--- RADAR
+-- RADAR SYSTEM (FIXED: Object Pooling)
 -- ═══════════════════════════════════════════
 local RadarFrame = Instance.new("Frame")
 RadarFrame.Size = UDim2.new(0, 160, 0, 160)
@@ -887,24 +985,26 @@ RadarFrame.BorderSizePixel = 0
 RadarFrame.Visible = false
 RadarFrame.Parent = ESPGui
 Instance.new("UICorner", RadarFrame).CornerRadius = UDim.new(1, 0)
-Instance.new("UIStroke", RadarFrame).Color = Color3.fromRGB(130, 100, 255)
+
+local RadarStroke = Instance.new("UIStroke")
+RadarStroke.Color = Color3.fromRGB(130, 100, 255)
+RadarStroke.Parent = RadarFrame
 
 -- Grid lines
-for _, v in pairs({{true}, {false}}) do
-    local l = Instance.new("Frame", RadarFrame)
-    l.BackgroundColor3 = Color3.fromRGB(80, 60, 180)
-    l.BackgroundTransparency = 0.7
-    l.BorderSizePixel = 0
-    if v[1] then
-        l.Size = UDim2.new(0, 1, 1, 0)
-        l.Position = UDim2.new(0.5, 0, 0, 0)
-    else
-        l.Size = UDim2.new(1, 0, 0, 1)
-        l.Position = UDim2.new(0, 0, 0.5, 0)
-    end
-end
+local gridH = Instance.new("Frame", RadarFrame)
+gridH.Size = UDim2.new(1, 0, 0, 1)
+gridH.Position = UDim2.new(0, 0, 0.5, 0)
+gridH.BackgroundColor3 = Color3.fromRGB(80, 60, 180)
+gridH.BackgroundTransparency = 0.7
+gridH.BorderSizePixel = 0
 
--- Self dot
+local gridV = Instance.new("Frame", RadarFrame)
+gridV.Size = UDim2.new(0, 1, 1, 0)
+gridV.Position = UDim2.new(0.5, 0, 0, 0)
+gridV.BackgroundColor3 = Color3.fromRGB(80, 60, 180)
+gridV.BackgroundTransparency = 0.7
+gridV.BorderSizePixel = 0
+
 local SelfDot = Instance.new("Frame", RadarFrame)
 SelfDot.Size = UDim2.new(0, 8, 0, 8)
 SelfDot.Position = UDim2.new(0.5, -4, 0.5, -4)
@@ -921,18 +1021,43 @@ RadarLabel.TextSize = 10
 RadarLabel.Font = Enum.Font.GothamBold
 RadarLabel.TextColor3 = Color3.fromRGB(130, 100, 255)
 
-local radarDots = {}
+-- FIXED: Object pool untuk radar dots
+local radarDotPool = {}
 
+local function GetOrCreateRadarDot(index)
+    if radarDotPool[index] then
+        radarDotPool[index].Visible = true
+        return radarDotPool[index]
+    end
+
+    local dot = Instance.new("Frame")
+    dot.Size = UDim2.new(0, 8, 0, 8)
+    dot.BorderSizePixel = 0
+    dot.Parent = RadarFrame
+    Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+
+    local nameLabel = Instance.new("TextLabel", dot)
+    nameLabel.Name = "NameLabel"
+    nameLabel.Size = UDim2.new(0, 60, 0, 12)
+    nameLabel.Position = UDim2.new(0, 10, 0, -2)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.TextSize = 8
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+    radarDotPool[index] = dot
+    return dot
+end
+
+-- FIXED: Reuse dots, tidak buat Instance baru setiap frame
 local function UpdateRadar()
-    for _, d in pairs(radarDots) do pcall(function() d:Destroy() end) end
-    radarDots = {}
-
     local localChar = LocalPlayer.Character
     if not localChar then return end
     local localHRP = localChar:FindFirstChild("HumanoidRootPart")
     if not localHRP then return end
 
     local radarRange = 400
+    local dotIndex   = 0
 
     for _, player in pairs(Players:GetPlayers()) do
         if player == LocalPlayer then continue end
@@ -945,171 +1070,245 @@ local function UpdateRadar()
         local dist = (hrp.Position - localHRP.Position).Magnitude
         if dist > radarRange then continue end
 
-        local rel = localHRP.CFrame:PointToObjectSpace(hrp.Position)
-        local nx = math.clamp(rel.X / radarRange, -1, 1)
-        local nz = math.clamp(rel.Z / radarRange, -1, 1)
+        dotIndex = dotIndex + 1
+        local dot   = GetOrCreateRadarDot(dotIndex)
         local color = GetDistanceColor(dist)
 
-        local dot = Instance.new("Frame", RadarFrame)
-        dot.Size = UDim2.new(0, 8, 0, 8)
-        dot.Position = UDim2.new(0.5 + nx * 0.42, -4, 0.5 + nz * 0.42, -4)
+        local rel = localHRP.CFrame:PointToObjectSpace(hrp.Position)
+        local nx  = math.clamp(rel.X / radarRange, -1, 1)
+        local nz  = math.clamp(rel.Z / radarRange, -1, 1)
+
+        dot.Position         = UDim2.new(0.5 + nx * 0.42, -4, 0.5 + nz * 0.42, -4)
         dot.BackgroundColor3 = color
-        dot.BorderSizePixel = 0
-        Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
 
-        local dName = Instance.new("TextLabel", dot)
-        dName.Size = UDim2.new(0, 60, 0, 12)
-        dName.Position = UDim2.new(0, 10, 0, -2)
-        dName.BackgroundTransparency = 1
-        dName.Text = player.Name
-        dName.TextSize = 8
-        dName.Font = Enum.Font.GothamBold
-        dName.TextColor3 = color
-        dName.TextXAlignment = Enum.TextXAlignment.Left
+        local nameLabel = dot:FindFirstChild("NameLabel")
+        if nameLabel then
+            nameLabel.Text       = player.Name
+            nameLabel.TextColor3 = color
+        end
+    end
 
-        table.insert(radarDots, dot)
+    -- Sembunyikan dot yang tidak terpakai (tidak di-destroy!)
+    for i = dotIndex + 1, #radarDotPool do
+        if radarDotPool[i] then
+            radarDotPool[i].Visible = false
+        end
     end
 end
 
 -- ═══════════════════════════════════════════
--- CREATE ALL TOGGLES & SECTIONS
+-- AUTO HANDLE PLAYERS (PlayerAdded / Removing)
+-- ═══════════════════════════════════════════
+Players.PlayerAdded:Connect(function(player)
+    if ESPEnabled then
+        task.wait(2)
+        CreatePlayerESP(player)
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    RemovePlayerESP(player)
+end)
+
+-- ═══════════════════════════════════════════
+-- SECTIONS & FEATURES
 -- ═══════════════════════════════════════════
 
 CreateSection("— VISUAL —", 1)
 
--- Full Bright
+-- ─── FULL BRIGHT ───
 CreateToggle("🌞 Full Bright", "Semua area jadi terang total", 2, function(state)
     if state then
+        -- FIXED: Simpan parent asli setiap effect
         for _, v in pairs(Lighting:GetDescendants()) do
-            if v:IsA("Atmosphere") or v:IsA("BloomEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("SunRaysEffect") then
+            if v:IsA("Atmosphere")
+            or v:IsA("BloomEffect")
+            or v:IsA("DepthOfFieldEffect")
+            or v:IsA("ColorCorrectionEffect")
+            or v:IsA("SunRaysEffect") then
+                RemovedEffects[v] = v.Parent
                 v.Parent = nil
-                table.insert(RemovedEffects, v)
             end
         end
-        connections["bright"] = RunService.RenderStepped:Connect(function()
-            Lighting.ClockTime = 14; Lighting.Brightness = 2; Lighting.FogEnd = 1e6; Lighting.FogStart = 0; Lighting.GlobalShadows = false; Lighting.OutdoorAmbient = Color3.new(1,1,1)
-        end)
-        connections["brightChild"] = Lighting.ChildAdded:Connect(function(c)
-            if c:IsA("Atmosphere") or c:IsA("BloomEffect") or c:IsA("DepthOfFieldEffect") then task.wait() c:Destroy() end
-        end)
+
+        connections:Add("bright", RunService.RenderStepped:Connect(function()
+            Lighting.ClockTime     = 14
+            Lighting.Brightness    = 2
+            Lighting.FogEnd        = 1e6
+            Lighting.FogStart      = 0
+            Lighting.GlobalShadows = false
+            Lighting.OutdoorAmbient = Color3.new(1, 1, 1)
+        end))
+
+        connections:Add("brightChild", Lighting.ChildAdded:Connect(function(c)
+            if c:IsA("Atmosphere")
+            or c:IsA("BloomEffect")
+            or c:IsA("DepthOfFieldEffect") then
+                task.wait()
+                c:Destroy()
+            end
+        end))
+
         SetStatus("🌞 Full Bright: ON", Color3.fromRGB(100, 255, 120))
     else
-        if connections["bright"] then connections["bright"]:Disconnect() end
-        if connections["brightChild"] then connections["brightChild"]:Disconnect() end
-        Lighting.Brightness = originalValues.Brightness; Lighting.ClockTime = originalValues.ClockTime; Lighting.FogEnd = originalValues.FogEnd; Lighting.FogStart = originalValues.FogStart; Lighting.GlobalShadows = originalValues.GlobalShadows; Lighting.OutdoorAmbient = originalValues.OutdoorAmbient
-        for _, v in pairs(RemovedEffects) do pcall(function() v.Parent = Lighting end) end
+        connections:Remove("bright")
+        connections:Remove("brightChild")
+
+        Lighting.Brightness     = originalValues.Brightness
+        Lighting.ClockTime      = originalValues.ClockTime
+        Lighting.FogEnd         = originalValues.FogEnd
+        Lighting.FogStart       = originalValues.FogStart
+        Lighting.GlobalShadows  = originalValues.GlobalShadows
+        Lighting.OutdoorAmbient = originalValues.OutdoorAmbient
+
+        -- FIXED: Restore ke parent asli masing-masing
+        for instance, originalParent in pairs(RemovedEffects) do
+            pcall(function() instance.Parent = originalParent end)
+        end
         RemovedEffects = {}
+
         SetStatus("🌞 Full Bright: OFF", Color3.fromRGB(255, 100, 100))
     end
 end)
 
--- Unlimited Zoom
+-- ─── UNLIMITED ZOOM ───
 CreateToggle("🔭 Unlimited Zoom", "Zoom kamera tanpa batas", 3, function(state)
     if state then
-        connections["zoom"] = RunService.RenderStepped:Connect(function()
-            LocalPlayer.CameraMaxZoomDistance = 1e6; LocalPlayer.CameraMinZoomDistance = 0.1
-        end)
+        connections:Add("zoom", RunService.RenderStepped:Connect(function()
+            LocalPlayer.CameraMaxZoomDistance = 1e6
+            LocalPlayer.CameraMinZoomDistance = 0.1
+        end))
         SetStatus("🔭 Unlimited Zoom: ON", Color3.fromRGB(100, 255, 120))
     else
-        if connections["zoom"] then connections["zoom"]:Disconnect() end
-        LocalPlayer.CameraMaxZoomDistance = originalValues.MaxZoom; LocalPlayer.CameraMinZoomDistance = originalValues.MinZoom
+        connections:Remove("zoom")
+        LocalPlayer.CameraMaxZoomDistance = originalValues.MaxZoom
+        LocalPlayer.CameraMinZoomDistance = originalValues.MinZoom
         SetStatus("🔭 Unlimited Zoom: OFF", Color3.fromRGB(255, 100, 100))
     end
 end)
 
 CreateSection("— COMBAT —", 4)
 
--- HP Regen
-CreateToggle("❤️ HP Regen", "Instant auto heal setiap frame", 5, function(state)
+-- ─── HP REGEN ───
+CreateToggle("❤️ HP Regen (Client)", "Auto heal - client side only", 5, function(state)
     if state then
-        connections["regen"] = RunService.Heartbeat:Connect(function()
+        connections:Add("regen", RunService.Heartbeat:Connect(function()
             local c = LocalPlayer.Character
-            if c then local h = c:FindFirstChildOfClass("Humanoid") if h and h.Health > 0 then h.Health = h.MaxHealth end end
-        end)
-        connections["regenR"] = LocalPlayer.CharacterAdded:Connect(function(c)
+            if c then
+                local h = c:FindFirstChildOfClass("Humanoid")
+                if h and h.Health > 0 then
+                    h.Health = h.MaxHealth
+                end
+            end
+        end))
+
+        connections:Add("regenChar", LocalPlayer.CharacterAdded:Connect(function(c)
             task.wait(0.5)
             local h = c:WaitForChild("Humanoid", 5)
             if h then h.Health = h.MaxHealth end
-        end)
-        SetStatus("❤️ HP Regen: ON", Color3.fromRGB(100, 255, 120))
+        end))
+
+        SetStatus("❤️ HP Regen: ON (Client)", Color3.fromRGB(100, 255, 120))
     else
-        if connections["regen"] then connections["regen"]:Disconnect() end
-        if connections["regenR"] then connections["regenR"]:Disconnect() end
+        connections:Remove("regen")
+        connections:Remove("regenChar")
         SetStatus("❤️ HP Regen: OFF", Color3.fromRGB(255, 100, 100))
     end
 end)
 
 CreateSection("— MOVEMENT —", 6)
 
--- Fly
+-- ─── FLY SYSTEM ───
 local function StartFly()
-    local char = LocalPlayer.Character
+    local char  = LocalPlayer.Character
     if not char then return end
     local torso = char:FindFirstChild("HumanoidRootPart")
-    local hum = char:FindFirstChildOfClass("Humanoid")
+    local hum   = char:FindFirstChildOfClass("Humanoid")
     if not torso or not hum then return end
 
     BG = Instance.new("BodyGyro", torso)
     BV = Instance.new("BodyVelocity", torso)
-    BG.P = 9e4; BG.maxTorque = Vector3.new(9e9,9e9,9e9); BG.cframe = torso.CFrame
-    BV.velocity = Vector3.new(0,0.1,0); BV.maxForce = Vector3.new(9e9,9e9,9e9)
+    BG.P          = 9e4
+    BG.maxTorque  = Vector3.new(9e9, 9e9, 9e9)
+    BG.cframe     = torso.CFrame
+    BV.velocity   = Vector3.new(0, 0.1, 0)
+    BV.maxForce   = Vector3.new(9e9, 9e9, 9e9)
 
-    spawn(function()
-        repeat task.wait()
+    task.spawn(function()
+        repeat
+            task.wait()
             if not Flying then break end
             hum.PlatformStand = true
-            MaxSpeed = ((Ctrl.l+Ctrl.r)~=0 or (Ctrl.f+Ctrl.b)~=0) and FlySpeed or 0
 
-            if (Ctrl.l+Ctrl.r)~=0 or (Ctrl.f+Ctrl.b)~=0 then
-                BV.velocity = ((Camera.CoordinateFrame.lookVector*(Ctrl.f+Ctrl.b))+((Camera.CoordinateFrame*CFrame.new(Ctrl.l+Ctrl.r,(Ctrl.f+Ctrl.b)*0.2,0).p)-Camera.CoordinateFrame.p))*MaxSpeed
-                LastCtrl = {f=Ctrl.f,b=Ctrl.b,l=Ctrl.l,r=Ctrl.r}
-            elseif MaxSpeed~=0 then
-                BV.velocity = ((Camera.CoordinateFrame.lookVector*(LastCtrl.f+LastCtrl.b))+((Camera.CoordinateFrame*CFrame.new(LastCtrl.l+LastCtrl.r,(LastCtrl.f+LastCtrl.b)*0.2,0).p)-Camera.CoordinateFrame.p))*MaxSpeed
+            local moving = (Ctrl.l + Ctrl.r) ~= 0 or (Ctrl.f + Ctrl.b) ~= 0
+            MaxSpeed = moving and FlySpeed or 0
+
+            if moving then
+                local look = Camera.CoordinateFrame.lookVector
+                local side = (Camera.CoordinateFrame * CFrame.new(Ctrl.l + Ctrl.r, (Ctrl.f + Ctrl.b) * 0.2, 0)).p
+                    - Camera.CoordinateFrame.p
+                BV.velocity = (look * (Ctrl.f + Ctrl.b) + side) * MaxSpeed
+                LastCtrl = {f = Ctrl.f, b = Ctrl.b, l = Ctrl.l, r = Ctrl.r}
+            elseif MaxSpeed ~= 0 then
+                local look = Camera.CoordinateFrame.lookVector
+                local side = (Camera.CoordinateFrame * CFrame.new(LastCtrl.l + LastCtrl.r, (LastCtrl.f + LastCtrl.b) * 0.2, 0)).p
+                    - Camera.CoordinateFrame.p
+                BV.velocity = (look * (LastCtrl.f + LastCtrl.b) + side) * MaxSpeed
             else
-                BV.velocity = Vector3.new(0,0.1,0)
+                BV.velocity = Vector3.new(0, 0.1, 0)
             end
+
             BG.cframe = Camera.CoordinateFrame
         until not Flying
 
-        Ctrl={f=0,b=0,l=0,r=0}; LastCtrl={f=0,b=0,l=0,r=0}; MaxSpeed=0
-        if BG then BG:Destroy() end
-        if BV then BV:Destroy() end
+        Ctrl     = {f = 0, b = 0, l = 0, r = 0}
+        LastCtrl = {f = 0, b = 0, l = 0, r = 0}
+        MaxSpeed = 0
+
+        if BG then pcall(function() BG:Destroy() end) end
+        if BV then pcall(function() BV:Destroy() end) end
         if hum then hum.PlatformStand = false end
     end)
 end
 
 CreateToggle("✈️ Fly", "Terbang bebas WASD + arah kamera", 7, function(state)
-    FlyToggleState = state; Flying = state
-    if state then StartFly(); SetStatus("✈️ Fly: ON | Speed: "..FlySpeed, Color3.fromRGB(100,255,120))
-    else SetStatus("✈️ Fly: OFF", Color3.fromRGB(255,100,100)) end
+    FlyToggleState = state
+    Flying = state
+    if state then
+        StartFly()
+        SetStatus("✈️ Fly: ON | Speed: " .. FlySpeed, Color3.fromRGB(100, 255, 120))
+    else
+        SetStatus("✈️ Fly: OFF", Color3.fromRGB(255, 100, 100))
+    end
 end)
 
 LocalPlayer.CharacterAdded:Connect(function()
     task.wait(1)
-    if FlyToggleState then Flying = true; StartFly() end
+    if FlyToggleState then
+        Flying = true
+        StartFly()
+    end
 end)
 
 CreateSlider("✈️ Fly Speed", 10, 500, 50, 8, function(v)
     FlySpeed = v
-    if FlyToggleState then SetStatus("✈️ Fly Speed: "..v, Color3.fromRGB(100,255,120)) end
+    if FlyToggleState then
+        SetStatus("✈️ Fly Speed: " .. v, Color3.fromRGB(100, 255, 120))
+    end
 end)
 
--- ═══════════════════════════════════════════
--- UNLIMITED JUMP
--- ═══════════════════════════════════════════
+-- ─── UNLIMITED JUMP ───
 CreateToggle("🦘 Unlimited Jump", "Lompat di udara tanpa batas", 9, function(state)
     UnlimitedJumpEnabled = state
 
     if state then
         JumpConnection = UserInputService.JumpRequest:Connect(function()
-            if UnlimitedJumpEnabled then
-                local char = LocalPlayer.Character
-                if char then
-                    local hum = char:FindFirstChildOfClass("Humanoid")
-                    if hum then
-                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                    end
-                end
+            if not UnlimitedJumpEnabled then return end
+            local char = LocalPlayer.Character
+            if not char then return end
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
             end
         end)
         SetStatus("🦘 Unlimited Jump: ON", Color3.fromRGB(100, 255, 120))
@@ -1124,7 +1323,7 @@ end)
 
 CreateSection("— ESP / RADAR —", 10)
 
--- ESP Toggle
+-- ─── ESP TOGGLE ───
 CreateToggle("👁️ ESP (Full)", "Box + Name + HP + Distance + Highlight", 11, function(state)
     ESPEnabled = state
 
@@ -1135,14 +1334,30 @@ CreateToggle("👁️ ESP (Full)", "Box + Name + HP + Distance + Highlight", 11,
             end
         end
 
-        ESPUpdateConn = RunService.RenderStepped:Connect(function()
-            UpdateAllESP()
-            CheckDangerAlert()
+        -- FIXED: Gunakan Heartbeat dengan throttle, bukan RenderStepped tiap frame
+        ESPUpdateConn = RunService.Heartbeat:Connect(function(dt)
+            espUpdateTimer  = espUpdateTimer + dt
+            dangerUpdateTimer = dangerUpdateTimer + dt
+
+            -- ESP update 20x/detik
+            if espUpdateTimer >= 0.05 then
+                espUpdateTimer = 0
+                UpdateAllESP()
+            end
+
+            -- Danger check 5x/detik
+            if dangerUpdateTimer >= 0.2 then
+                dangerUpdateTimer = 0
+                CheckDangerAlert()
+            end
         end)
 
-        SetStatus("👁️ ESP: ON (Auto Updating)", Color3.fromRGB(100, 255, 120))
+        SetStatus("👁️ ESP: ON", Color3.fromRGB(100, 255, 120))
     else
-        if ESPUpdateConn then ESPUpdateConn:Disconnect(); ESPUpdateConn = nil end
+        if ESPUpdateConn then
+            ESPUpdateConn:Disconnect()
+            ESPUpdateConn = nil
+        end
 
         for _, player in pairs(Players:GetPlayers()) do
             RemovePlayerESP(player)
@@ -1150,29 +1365,40 @@ CreateToggle("👁️ ESP (Full)", "Box + Name + HP + Distance + Highlight", 11,
 
         AlertFrame.Visible = false
         alertActive = false
+        espUpdateTimer = 0
+        dangerUpdateTimer = 0
         SetStatus("👁️ ESP: OFF", Color3.fromRGB(255, 100, 100))
     end
 end)
 
--- Tracer Toggle
+-- ─── TRACER ───
 CreateToggle("📍 Tracer Lines", "Garis penunjuk arah ke musuh", 12, function(state)
     ESPSettings.ShowTracer = state
-    SetStatus("📍 Tracer: "..(state and "ON" or "OFF"), state and Color3.fromRGB(100,255,120) or Color3.fromRGB(255,100,100))
+    SetStatus("📍 Tracer: " .. (state and "ON" or "OFF"),
+        state and Color3.fromRGB(100, 255, 120) or Color3.fromRGB(255, 100, 100))
 end)
 
--- Radar Toggle
+-- ─── RADAR ───
 CreateToggle("🗺️ Mini Radar", "Radar deteksi musuh di sekitar", 13, function(state)
     RadarFrame.Visible = state
     if state then
-        connections["radar"] = RunService.RenderStepped:Connect(function() UpdateRadar() end)
+        connections:Add("radar", RunService.Heartbeat:Connect(function(dt)
+            radarUpdateTimer = radarUpdateTimer + dt
+            -- Radar update 10x/detik (FIXED)
+            if radarUpdateTimer >= 0.1 then
+                radarUpdateTimer = 0
+                UpdateRadar()
+            end
+        end))
         SetStatus("🗺️ Radar: ON", Color3.fromRGB(100, 255, 120))
     else
-        if connections["radar"] then connections["radar"]:Disconnect() end
+        connections:Remove("radar")
+        radarUpdateTimer = 0
         SetStatus("🗺️ Radar: OFF", Color3.fromRGB(255, 100, 100))
     end
 end)
 
--- ESP Distance Slider
+-- ─── ESP MAX DISTANCE SLIDER ───
 CreateSlider("👁️ ESP Max Distance", 100, 3000, 1500, 14, function(v)
     ESPSettings.MaxDistance = v
 end)
@@ -1199,10 +1425,10 @@ LTitle.Font = Enum.Font.GothamBold
 LTitle.TextColor3 = Color3.fromRGB(200, 200, 200)
 
 local legendData = {
-    {Color3.fromRGB(255,50,50), "🔴 0-200 studs = DANGER", 22},
-    {Color3.fromRGB(255,220,0), "🟡 201-300 studs = WARNING", 36},
-    {Color3.fromRGB(50,255,80), "🟢 301-600 studs = MEDIUM", 50},
-    {Color3.fromRGB(60,160,255), "🔵 601+ studs = FAR/SAFE", 64},
+    {Color3.fromRGB(255, 50, 50),   "🔴 0-200 studs = DANGER",   22},
+    {Color3.fromRGB(255, 220, 0),   "🟡 201-300 studs = WARNING", 36},
+    {Color3.fromRGB(50, 255, 80),   "🟢 301-600 studs = MEDIUM",  50},
+    {Color3.fromRGB(60, 160, 255),  "🔵 601+ studs = FAR/SAFE",   64},
 }
 
 for _, data in pairs(legendData) do
@@ -1228,7 +1454,7 @@ end
 local Credit = Instance.new("TextLabel")
 Credit.Size = UDim2.new(1, 0, 0, 22)
 Credit.BackgroundTransparency = 1
-Credit.Text = "Made for Solara ⚡ | V5 ESP Fixed"
+Credit.Text = "Solara Hub V5 ⚡ | Full Fixed Edition"
 Credit.TextSize = 10
 Credit.Font = Enum.Font.Gotham
 Credit.TextColor3 = Color3.fromRGB(60, 60, 80)
@@ -1236,55 +1462,116 @@ Credit.LayoutOrder = 99
 Credit.Parent = Content
 
 -- ═══════════════════════════════════════════
--- FLY CONTROLS
+-- FLY KEYBINDS (FIXED: UserInputService, bukan deprecated Mouse.KeyDown)
 -- ═══════════════════════════════════════════
-Mouse.KeyDown:Connect(function(k)
-    k = k:lower()
-    if k=="w" then Ctrl.f=1 elseif k=="s" then Ctrl.b=-1 elseif k=="a" then Ctrl.l=-1 elseif k=="d" then Ctrl.r=1 end
+local flyKeyMap = {
+    [Enum.KeyCode.W] = function(v) Ctrl.f = v end,
+    [Enum.KeyCode.S] = function(v) Ctrl.b = v end,
+    [Enum.KeyCode.A] = function(v) Ctrl.l = v end,
+    [Enum.KeyCode.D] = function(v) Ctrl.r = v end,
+}
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+
+    local fn = flyKeyMap[input.KeyCode]
+    if fn then
+        if input.KeyCode == Enum.KeyCode.W then fn(1)
+        elseif input.KeyCode == Enum.KeyCode.S then fn(-1)
+        elseif input.KeyCode == Enum.KeyCode.A then fn(-1)
+        elseif input.KeyCode == Enum.KeyCode.D then fn(1)
+        end
+    end
+
+    -- Keybind RightControl: Toggle show/hide GUI
+    if input.KeyCode == Enum.KeyCode.RightControl then
+        if MainFrame.Visible then
+            MinBtn.MouseButton1Click:Fire()
+        elseif MiniIcon.Visible then
+            MiniIcon.MouseButton1Click:Fire()
+        end
+    end
 end)
-Mouse.KeyUp:Connect(function(k)
-    k = k:lower()
-    if k=="w" then Ctrl.f=0 elseif k=="s" then Ctrl.b=0 elseif k=="a" then Ctrl.l=0 elseif k=="d" then Ctrl.r=0 end
+
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+    local fn = flyKeyMap[input.KeyCode]
+    if fn then fn(0) end
 end)
 
 -- ═══════════════════════════════════════════
--- DRAGGABLE
+-- DRAGGABLE MAIN FRAME
 -- ═══════════════════════════════════════════
 do
-    local d,di,ds,sp
-    TitleBar.InputBegan:Connect(function(i)
-        if i.UserInputType==Enum.UserInputType.MouseButton1 then
-            d=true; ds=i.Position; sp=MainFrame.Position
-            i.Changed:Connect(function() if i.UserInputState==Enum.UserInputState.End then d=false end end)
+    local dragging, dragInput, dragStart, startPos
+
+    TitleBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging   = true
+            dragStart  = input.Position
+            startPos   = MainFrame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
         end
     end)
-    TitleBar.InputChanged:Connect(function(i)
-        if i.UserInputType==Enum.UserInputType.MouseMovement then di=i end
+
+    TitleBar.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
     end)
-    UserInputService.InputChanged:Connect(function(i)
-        if i==di and d then
-            local delta=i.Position-ds
-            MainFrame.Position=UDim2.new(sp.X.Scale,sp.X.Offset+delta.X,sp.Y.Scale,sp.Y.Offset+delta.Y)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            MainFrame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
         end
     end)
 end
 
--- Draggable Mini Icon
+-- ═══════════════════════════════════════════
+-- DRAGGABLE MINI ICON
+-- ═══════════════════════════════════════════
 do
-    local d2,di2,ds2,sp2
-    MiniIcon.InputBegan:Connect(function(i)
-        if i.UserInputType==Enum.UserInputType.MouseButton1 then
-            d2=true; ds2=i.Position; sp2=MiniIcon.Position
-            i.Changed:Connect(function() if i.UserInputState==Enum.UserInputState.End then d2=false end end)
+    local dragging2, dragInput2, dragStart2, startPos2
+
+    MiniIcon.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging2  = true
+            dragStart2 = input.Position
+            startPos2  = MiniIcon.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging2 = false
+                end
+            end)
         end
     end)
-    MiniIcon.InputChanged:Connect(function(i)
-        if i.UserInputType==Enum.UserInputType.MouseMovement then di2=i end
+
+    MiniIcon.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput2 = input
+        end
     end)
-    UserInputService.InputChanged:Connect(function(i)
-        if i==di2 and d2 then
-            local delta=i.Position-ds2
-            MiniIcon.Position=UDim2.new(sp2.X.Scale,sp2.X.Offset+delta.X,sp2.Y.Scale,sp2.Y.Offset+delta.Y)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput2 and dragging2 then
+            local delta = input.Position - dragStart2
+            MiniIcon.Position = UDim2.new(
+                startPos2.X.Scale, startPos2.X.Offset + delta.X,
+                startPos2.Y.Scale, startPos2.Y.Offset + delta.Y
+            )
         end
     end)
 end
@@ -1294,84 +1581,173 @@ end
 -- ═══════════════════════════════════════════
 MinBtn.MouseButton1Click:Connect(function()
     TweenService:Create(MainFrame, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
-        Size = UDim2.new(0,0,0,0),
-        Position = UDim2.new(MainFrame.Position.X.Scale, MainFrame.Position.X.Offset+170, MainFrame.Position.Y.Scale, MainFrame.Position.Y.Offset+290)
+        Size     = UDim2.new(0, 0, 0, 0),
+        Position = UDim2.new(
+            MainFrame.Position.X.Scale,
+            MainFrame.Position.X.Offset + 170,
+            MainFrame.Position.Y.Scale,
+            MainFrame.Position.Y.Offset + 290
+        )
     }):Play()
+
     task.wait(0.35)
     MainFrame.Visible = false
     MiniIcon.Visible = true
-    MiniIcon.Size = UDim2.new(0,0,0,0); MiniIcon.ImageTransparency = 1
-    TweenService:Create(MiniIcon, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size=UDim2.new(0,55,0,55), ImageTransparency=0}):Play()
+    MiniIcon.Size = UDim2.new(0, 0, 0, 0)
+    MiniIcon.ImageTransparency = 1
+
+    TweenService:Create(MiniIcon, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Size             = UDim2.new(0, 55, 0, 55),
+        ImageTransparency = 0
+    }):Play()
 end)
 
--- RESTORE
+-- ═══════════════════════════════════════════
+-- RESTORE FROM MINI
+-- ═══════════════════════════════════════════
 local lastClick = 0
 MiniIcon.MouseButton1Click:Connect(function()
-    if tick()-lastClick < 0.3 then return end
+    if tick() - lastClick < 0.3 then return end
     lastClick = tick()
-    TweenService:Create(MiniIcon, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {Size=UDim2.new(0,0,0,0), ImageTransparency=1}):Play()
+
+    TweenService:Create(MiniIcon, TweenInfo.new(0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
+        Size              = UDim2.new(0, 0, 0, 0),
+        ImageTransparency = 1
+    }):Play()
+
     task.wait(0.25)
-    MiniIcon.Visible = false
+    MiniIcon.Visible  = false
     MainFrame.Visible = true
-    MainFrame.Size = UDim2.new(0,0,0,0); MainFrame.Position = UDim2.new(0.5,0,0.5,0)
-    TweenService:Create(MainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size=UDim2.new(0,340,0,580), Position=UDim2.new(0.5,-170,0.5,-290)}):Play()
+    MainFrame.Size    = UDim2.new(0, 0, 0, 0)
+    MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+
+    TweenService:Create(MainFrame, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Size     = UDim2.new(0, 340, 0, 580),
+        Position = UDim2.new(0.5, -170, 0.5, -290)
+    }):Play()
 end)
 
+-- ═══════════════════════════════════════════
 -- CLOSE
+-- ═══════════════════════════════════════════
 CloseBtn.MouseButton1Click:Connect(function()
-    Flying = false; FlyToggleState = false; ESPEnabled = false; UnlimitedJumpEnabled = false
+    -- Stop semua fitur
+    Flying               = false
+    FlyToggleState       = false
+    ESPEnabled           = false
+    UnlimitedJumpEnabled = false
 
-    if ESPUpdateConn then ESPUpdateConn:Disconnect() end
-    if JumpConnection then JumpConnection:Disconnect() end
+    -- Disconnect ESP update
+    if ESPUpdateConn then
+        ESPUpdateConn:Disconnect()
+        ESPUpdateConn = nil
+    end
 
-    for _, player in pairs(Players:GetPlayers()) do RemovePlayerESP(player) end
-    for _, conn in pairs(connections) do pcall(function() conn:Disconnect() end) end
+    -- Disconnect jump
+    if JumpConnection then
+        JumpConnection:Disconnect()
+        JumpConnection = nil
+    end
 
+    -- Cleanup ESP
+    for _, player in pairs(Players:GetPlayers()) do
+        RemovePlayerESP(player)
+    end
+
+    -- Disconnect semua connections
+    connections:RemoveAll()
+
+    -- Restore Lighting
     pcall(function()
-        Lighting.Brightness=originalValues.Brightness; Lighting.ClockTime=originalValues.ClockTime
-        Lighting.FogEnd=originalValues.FogEnd; Lighting.OutdoorAmbient=originalValues.OutdoorAmbient
-        LocalPlayer.CameraMaxZoomDistance=originalValues.MaxZoom; LocalPlayer.CameraMinZoomDistance=originalValues.MinZoom
+        Lighting.Brightness     = originalValues.Brightness
+        Lighting.ClockTime      = originalValues.ClockTime
+        Lighting.FogEnd         = originalValues.FogEnd
+        Lighting.FogStart       = originalValues.FogStart
+        Lighting.GlobalShadows  = originalValues.GlobalShadows
+        Lighting.OutdoorAmbient = originalValues.OutdoorAmbient
+        LocalPlayer.CameraMaxZoomDistance = originalValues.MaxZoom
+        LocalPlayer.CameraMinZoomDistance = originalValues.MinZoom
     end)
 
+    -- Restore effects
+    for instance, originalParent in pairs(RemovedEffects) do
+        pcall(function() instance.Parent = originalParent end)
+    end
+    RemovedEffects = {}
+
+    -- Cleanup fly
     if BG then pcall(function() BG:Destroy() end) end
     if BV then pcall(function() BV:Destroy() end) end
     local h = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-    if h then h.PlatformStand=false end
+    if h then h.PlatformStand = false end
 
-    TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {Size=UDim2.new(0,0,0,0)}):Play()
+    -- Cleanup workspace folder (FIXED: semua TracerPart terhapus otomatis)
+    pcall(function() ESPWorkspaceFolder:Destroy() end)
+
+    -- Cleanup radar pool
+    for _, dot in pairs(radarDotPool) do
+        pcall(function() dot:Destroy() end)
+    end
+    radarDotPool = {}
+
+    -- Animasi tutup
+    TweenService:Create(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
+        Size = UDim2.new(0, 0, 0, 0)
+    }):Play()
+
     task.wait(0.35)
-    ESPGui:Destroy(); ScreenGui:Destroy()
+    pcall(function() ESPGui:Destroy() end)
+    pcall(function() ScreenGui:Destroy() end)
 end)
 
+-- ═══════════════════════════════════════════
 -- HOVER EFFECTS
-CloseBtn.MouseEnter:Connect(function() TweenService:Create(CloseBtn, TweenInfo.new(0.2), {BackgroundColor3=Color3.fromRGB(255,70,70)}):Play() end)
-CloseBtn.MouseLeave:Connect(function() TweenService:Create(CloseBtn, TweenInfo.new(0.2), {BackgroundColor3=Color3.fromRGB(200,50,50)}):Play() end)
-MinBtn.MouseEnter:Connect(function() TweenService:Create(MinBtn, TweenInfo.new(0.2), {BackgroundColor3=Color3.fromRGB(255,210,50)}):Play() end)
-MinBtn.MouseLeave:Connect(function() TweenService:Create(MinBtn, TweenInfo.new(0.2), {BackgroundColor3=Color3.fromRGB(255,175,0)}):Play() end)
-MiniIcon.MouseEnter:Connect(function() TweenService:Create(MiniIcon, TweenInfo.new(0.2), {BackgroundColor3=Color3.fromRGB(40,40,60)}):Play() end)
-MiniIcon.MouseLeave:Connect(function() TweenService:Create(MiniIcon, TweenInfo.new(0.2), {BackgroundColor3=Color3.fromRGB(25,25,40)}):Play() end)
-
--- OPEN ANIMATION
-MainFrame.Size = UDim2.new(0,0,0,0); MainFrame.Position = UDim2.new(0.5,0,0.5,0)
-TweenService:Create(MainFrame, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size=UDim2.new(0,340,0,580), Position=UDim2.new(0.5,-170,0.5,-290)}):Play()
+-- ═══════════════════════════════════════════
+CloseBtn.MouseEnter:Connect(function()
+    TweenService:Create(CloseBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(255, 70, 70)}):Play()
+end)
+CloseBtn.MouseLeave:Connect(function()
+    TweenService:Create(CloseBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(200, 50, 50)}):Play()
+end)
+MinBtn.MouseEnter:Connect(function()
+    TweenService:Create(MinBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(255, 210, 50)}):Play()
+end)
+MinBtn.MouseLeave:Connect(function()
+    TweenService:Create(MinBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(255, 175, 0)}):Play()
+end)
+MiniIcon.MouseEnter:Connect(function()
+    TweenService:Create(MiniIcon, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(40, 40, 60)}):Play()
+end)
+MiniIcon.MouseLeave:Connect(function()
+    TweenService:Create(MiniIcon, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(25, 25, 40)}):Play()
+end)
 
 -- ═══════════════════════════════════════════
+-- OPEN ANIMATION
+-- ═══════════════════════════════════════════
+MainFrame.Size     = UDim2.new(0, 0, 0, 0)
+MainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+
+TweenService:Create(MainFrame, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+    Size     = UDim2.new(0, 340, 0, 580),
+    Position = UDim2.new(0.5, -170, 0.5, -290)
+}):Play()
+
+-- ═══════════════════════════════════════════
+-- PRINT LOG
+-- ═══════════════════════════════════════════
 print("══════════════════════════════════════════")
-print("⚡ Solara Hub V5 - LOADED!")
+print("⚡ Solara Hub V5 - FULL FIXED EDITION")
 print("══════════════════════════════════════════")
-print("🌞 Full Bright        ✅")
-print("🔭 Unlimited Zoom     ✅")
-print("❤️ HP Regen           ✅")
-print("✈️ Fly + Speed        ✅")
-print("🦘 Unlimited Jump     ✅ NEW!")
-print("👁️ ESP Full (FIXED)   ✅ FIXED!")
-print("📍 Tracer Lines       ✅")
-print("🗺️ Mini Radar         ✅")
-print("⚠️ Danger Alert       ✅ Auto")
-print("══════════════════════════════════════════")
-print("🎨 ESP Color System:")
-print("  🔴 0-200 studs = DANGER")
-print("  🟡 201-300 studs = WARNING")
-print("  🟢 301-600 studs = MEDIUM")
-print("  🔵 601+ studs = FAR/SAFE")
+print("🌞 Full Bright            ✅ Fixed restore")
+print("🔭 Unlimited Zoom         ✅")
+print("❤️ HP Regen (Client)      ✅ Warning added")
+print("✈️ Fly + Speed            ✅ Fixed keybind")
+print("🦘 Unlimited Jump         ✅")
+print("👁️ ESP Full               ✅ Memory fixed")
+print("📍 Tracer Lines           ✅ Folder cleaned")
+print("🗺️ Mini Radar             ✅ Object pool")
+print("⚠️ Danger Alert           ✅ Throttled")
+print("⌨️ RightCtrl = Toggle GUI ✅ New!")
+print("📱 Touch Support          ✅ New!")
 print("══════════════════════════════════════════")
