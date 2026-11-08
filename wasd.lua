@@ -1,102 +1,104 @@
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local player = Players.LocalPlayer
+local p = game.Players.LocalPlayer
+local pg = p:WaitForChild("PlayerGui")
+local rs = game:GetService("RunService")
 
--- Hapus GUI lama kalau ada
-local pg = player:WaitForChild("PlayerGui")
-local old = pg:FindFirstChild("WASD_Mobile")
-if old then old:Destroy() end
-
--- Buat ScreenGui
-local sg = Instance.new("ScreenGui")
-sg.Name = "WASD_Mobile"
-sg.ResetPlayerGuiOnSpawn = false
-sg.IgnoreGuiInset = true
-sg.Parent = pg
-
--- Container (kiri bawah layar)
-local container = Instance.new("Frame")
-container.Size = UDim2.new(0, 175, 0, 175)
-container.Position = UDim2.new(0, 15, 1, -210)
-container.BackgroundTransparency = 1
-container.Parent = sg
-
--- Fungsi buat tombol
-local function makeBtn(text, x, y)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(0, 52, 0, 52)
-    btn.Position = UDim2.new(0, x, 0, y)
-    btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    btn.BackgroundTransparency = 0.6
-    btn.Text = text
-    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    btn.TextSize = 22
-    btn.Font = Enum.Font.GothamBold
-    btn.Parent = container
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 12)
-    local s = Instance.new("UIStroke")
-    s.Color = Color3.fromRGB(200, 200, 200)
-    s.Thickness = 2
-    s.Transparency = 0.4
-    s.Parent = btn
-    return btn
+-- Tunggu game fully loaded
+if not game:IsLoaded() then
+    game.Loaded:Wait()
 end
+task.wait(2)
 
--- Susunan tombol:
---      [ W ]
---   [ A ] [ D ]
---      [ S ]
-local btnW = makeBtn("W", 62, 0)
-local btnA = makeBtn("A", 0, 62)
-local btnD = makeBtn("D", 124, 62)
-local btnS = makeBtn("S", 62, 124)
+local mv = {W=false, A=false, S=false, D=false}
 
--- Track tombol yang sedang ditekan
-local pressed = {}
+-- Fungsi buat GUI
+local function createGUI()
+    -- Hapus yang lama kalau ada
+    local old = pg:FindFirstChild("WASD_X")
+    if old then old:Destroy() end
 
-local function bindBtn(btn, key)
-    btn.MouseButton1Down:Connect(function()
-        pressed[key] = true
-        btn.BackgroundTransparency = 0.25
-        btn.BackgroundColor3 = Color3.fromRGB(100, 200, 255)
+    -- Coba parent ke CoreGui dulu (lebih susah dihapus game)
+    local parent = pg
+    pcall(function()
+        local cg = game:GetService("CoreGui")
+        if cg then parent = cg end
     end)
-    btn.MouseButton1Up:Connect(function()
-        pressed[key] = nil
-        btn.BackgroundTransparency = 0.6
-        btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    end)
-end
 
-bindBtn(btnW, "W")
-bindBtn(btnA, "A")
-bindBtn(btnS, "S")
-bindBtn(btnD, "D")
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "WASD_X"
+    sg.ResetPlayerGuiOnSpawn = false
+    sg.DisplayOrder = 999
+    sg.IgnoreGuiInset = true
+    sg.Parent = parent
 
--- Arah gerak (relative ke kamera)
-local dirs = {
-    W = Vector3.new(0, 0, -1),  -- maju
-    A = Vector3.new(-1, 0, 0),  -- kiri
-    S = Vector3.new(0, 0, 1),   -- mundur
-    D = Vector3.new(1, 0, 0),   -- kanan
-}
-
--- Loop gerak setiap frame
-RunService.RenderStepped:Connect(function()
-    local char = player.Character
-    if not char then return end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if not hum then return end
-
-    local moveDir = Vector3.new(0, 0, 0)
-    for key, _ in pairs(pressed) do
-        moveDir = moveDir + dirs[key]
+    local function btn(t, x, y)
+        local b = Instance.new("TextButton")
+        b.Size = UDim2.new(0, 60, 0, 60)
+        b.Position = UDim2.new(0, x, 1, y)
+        b.AnchorPoint = Vector2.new(0, 0)
+        b.Text = t
+        b.TextSize = 26
+        b.Font = Enum.Font.GothamBold
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        b.BackgroundTransparency = 0.3
+        b.Active = true
+        b.AutoButtonColor = true
+        b.ZIndex = 100
+        b.Parent = sg
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 12)
+        local st = Instance.new("UIStroke")
+        st.Color = Color3.new(1, 1, 1)
+        st.Thickness = 2
+        st.Transparency = 0.5
+        st.Parent = b
+        return b
     end
 
-    if moveDir.Magnitude > 0 then
-        moveDir = moveDir.Unit
-        hum:Move(moveDir, true) -- true = relatif ke kamera
+    local W = btn("W", 75, -200)
+    local A = btn("A", 10, -135)
+    local S = btn("S", 75, -135)
+    local D = btn("D", 140, -135)
+
+    W.MouseButton1Down:Connect(function() mv.W = true end)
+    W.MouseButton1Up:Connect(function() mv.W = false end)
+    A.MouseButton1Down:Connect(function() mv.A = true end)
+    A.MouseButton1Up:Connect(function() mv.A = false end)
+    S.MouseButton1Down:Connect(function() mv.S = true end)
+    S.MouseButton1Up:Connect(function() mv.S = false end)
+    D.MouseButton1Down:Connect(function() mv.D = true end)
+    D.MouseButton1Up:Connect(function() mv.D = false end)
+
+    return sg
+end
+
+-- Buat GUI pertama kali
+local gui = createGUI()
+print("GUI dibuat!")
+
+-- Loop: kalau GUI dihapus game, buat lagi
+task.spawn(function()
+    while task.wait(1) do
+        if not gui or not gui.Parent then
+            gui = createGUI()
+            print("GUI dibuat ulang!")
+        end
     end
 end)
 
-print("✅ WASD Mobile aktif!")
-print("💡 Tombol W-A-S-D ada di kiri bawah layar")
+-- Loop gerak
+rs.RenderStepped:Connect(function()
+    local c = p.Character
+    if not c then return end
+    local h = c:FindFirstChildOfClass("Humanoid")
+    if not h then return end
+    local d = Vector3.new(0, 0, 0)
+    if mv.W then d = d + Vector3.new(0, 0, -1) end
+    if mv.S then d = d + Vector3.new(0, 0, 1) end
+    if mv.A then d = d + Vector3.new(-1, 0, 0) end
+    if mv.D then d = d + Vector3.new(1, 0, 0) end
+    if d.Magnitude > 0 then
+        h:Move(d.Unit, true)
+    end
+end)
+
+print("✅ WASD aktif! Cek kiri bawah layar.")
