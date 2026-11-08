@@ -1,111 +1,191 @@
-local StarterGui = game:GetService("StarterGui")
-local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
+local StarterGui = game:GetService("StarterGui")
+local UIS = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 
--- ============================================
--- APPROACH 1: Paksa Backpack Default 10 Slot
--- ============================================
-local function forceDefault()
-    pcall(function()
-        StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, true)
-    end)
-    pcall(function()
-        StarterGui:SetCore("BackpackMaxSlots", 10)
+-- Matikan backpack bawaan
+StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+
+-- Hapus GUI lama kalau ada
+local pg = player:WaitForChild("PlayerGui")
+local old = pg:FindFirstChild("CustomHotbar10")
+if old then old:Destroy() end
+
+-- Buat ScreenGui baru
+local sg = Instance.new("ScreenGui")
+sg.Name = "CustomHotbar10"
+sg.ResetPlayerGuiOnSpawn = false
+sg.IgnoreGuiInset = true
+sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+sg.Parent = pg
+
+-- Frame utama
+local main = Instance.new("Frame")
+main.Size = UDim2.new(0, 0, 0, 56)
+main.Position = UDim2.new(0.5, 0, 1, -65)
+main.AnchorPoint = Vector2.new(0.5, 0)
+main.BackgroundTransparency = 1
+main.Parent = sg
+
+local layout = Instance.new("UIListLayout")
+layout.FillDirection = Enum.FillDirection.Horizontal
+layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+layout.Padding = UDim.new(0, 3)
+layout.Parent = main
+
+-- Deteksi layar mobile biar ukuran pas
+local isMobile = UIS.TouchEnabled
+local slotSize = isMobile and 42 or 50
+
+-- Buat 10 slot
+local slots = {}
+for i = 1, 10 do
+    local btn = Instance.new("ImageButton")
+    btn.Name = "S" .. i
+    btn.Size = UDim2.new(0, slotSize, 0, slotSize)
+    btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    btn.BackgroundTransparency = 0.4
+    btn.BorderSizePixel = 0
+    btn.Image = ""
+    btn.ScaleType = Enum.ScaleType.Fit
+    btn.Parent = main
+
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(255, 255, 255)
+    stroke.Thickness = 2
+    stroke.Enabled = false
+    stroke.Parent = btn
+
+    local num = Instance.new("TextLabel")
+    num.Size = UDim2.new(1, 0, 0, 14)
+    num.Position = UDim2.new(0, 0, 1, -14)
+    num.BackgroundTransparency = 1
+    num.Text = tostring(i % 10)
+    num.TextColor3 = Color3.fromRGB(220, 220, 220)
+    num.TextSize = 10
+    num.Font = Enum.Font.GothamBold
+    num.ZIndex = 3
+    num.Parent = btn
+
+    -- Nama item
+    local lbl = Instance.new("TextLabel")
+    lbl.Name = "ItemName"
+    lbl.Size = UDim2.new(1, 0, 0, 12)
+    lbl.Position = UDim2.new(0, 0, 0, 2)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = ""
+    lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+    lbl.TextSize = 7
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextTruncate = Enum.TextTruncate.AtEnd
+    lbl.ZIndex = 3
+    lbl.Parent = btn
+
+    slots[i] = {Btn = btn, Stroke = stroke, Tool = nil}
+
+    -- Tap untuk equip (mobile & desktop)
+    btn.MouseButton1Click:Connect(function()
+        equipSlot(i)
     end)
 end
 
+-- Sesuaikan ukuran frame utama
+main.Size = UDim2.new(0, 10 * slotSize + 9 * 3 + 10, 0, slotSize + 8)
+
 -- ============================================
--- APPROACH 2: Hapus Custom Inventory Developer
+-- FUNGSI EQUIP
 -- ============================================
-local function destroyCustomInventory()
-    local pg = player:FindFirstChild("PlayerGui")
-    if not pg then return end
-    for _, gui in ipairs(pg:GetChildren()) do
-        local n = gui.Name:lower()
-        if n:find("invent") or n:find("hotbar") or n:find("backpack")
-        or n:find("toolbar") or n:find("slot") or n:find("bag")
-        or n:find("item") or n:find("equipment") or n:find("hud") then
-            pcall(function()
-                gui.Enabled = false
-                task.wait(0.05)
-                gui:Destroy()
-            end)
+function equipSlot(i)
+    local tool = slots[i].Tool
+    if not tool then return end
+    local char = player.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+
+    if tool.Parent == player:FindFirstChild("Backpack") then
+        hum:EquipTool(tool)
+    elseif tool.Parent == char then
+        hum:UnequipTools()
+    end
+end
+
+-- ============================================
+-- FUNGSI UPDATE TAMPILAN
+-- ============================================
+local function refresh()
+    -- Reset semua
+    for i = 1, 10 do
+        slots[i].Tool = nil
+        slots[i].Btn.Image = ""
+        slots[i].Btn.ItemName.Text = ""
+        slots[i].Btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        slots[i].Stroke.Enabled = false
+    end
+
+    local idx = 1
+    local char = player.Character
+    local bp = player:FindFirstChild("Backpack")
+
+    -- Tool yang sedang dipegang (di character)
+    if char then
+        for _, v in ipairs(char:GetChildren()) do
+            if v:IsA("Tool") and idx <= 10 then
+                slots[idx].Tool = v
+                slots[idx].Btn.Image = v.TextureId
+                slots[idx].Btn.ItemName.Text = v.Name
+                slots[idx].Btn.BackgroundColor3 = Color3.fromRGB(60, 120, 60)
+                slots[idx].Stroke.Enabled = true
+                idx = idx + 1
+            end
+        end
+    end
+
+    -- Tool di backpack
+    if bp then
+        for _, v in ipairs(bp:GetChildren()) do
+            if v:IsA("Tool") and idx <= 10 then
+                slots[idx].Tool = v
+                slots[idx].Btn.Image = v.TextureId
+                slots[idx].Btn.ItemName.Text = v.Name
+                idx = idx + 1
+            end
         end
     end
 end
 
 -- ============================================
--- APPROACH 3: Spoof Platform ke Desktop
--- (Biar game kira kita di PC, bukan mobile)
+-- KEYBOARD (Desktop)
 -- ============================================
-local function spoofDesktop()
-    pcall(function()
-        -- Beberapa game cek TouchEnabled
-        -- Kita coba override metatable-nya
-        local mt = getrawmetatable(UserInputService)
-        if mt then
-            local oldIndex = mt.__index
-            setreadonly(mt, false)
-            mt.__index = function(self, key)
-                if key == "TouchEnabled" then
-                    return false -- Paksa bilang bukan mobile
-                end
-                if key == "KeyboardEnabled" then
-                    return true -- Paksa bilang ada keyboard
-                end
-                return oldIndex(self, key)
-            end
-            setreadonly(mt, true)
-        end
-    end)
-end
-
--- ============================================
--- APPROACH 4: Cari & Modifikasi GUI Secara Langsung
--- ============================================
-local function modifyExistingGUI()
-    local pg = player:FindFirstChild("PlayerGui")
-    if not pg then return end
-
-    -- Cari semua frame yang mirip hotbar
-    for _, gui in ipairs(pg:GetDescendants()) do
-        if gui:IsA("Frame") or gui:IsA("ScrollingFrame") then
-            local n = gui.Name:lower()
-            if n:find("slot") or n:find("hotbar") or n:find("bar") then
-                pcall(function()
-                    gui.Visible = true
-                    gui.Active = true
-                end)
-            end
-        end
-    end
-end
-
--- ============================================
--- JALANKAN SEMUA APPROACH
--- ============================================
-spoofDesktop()
-task.wait(0.5)
-destroyCustomInventory()
-task.wait(0.3)
-forceDefault()
-task.wait(0.3)
-modifyExistingGUI()
-
--- Loop biar tetap aktif
-task.spawn(function()
-    while task.wait(0.2) do
-        forceDefault()
+local keys = {
+    [Enum.KeyCode.One]=1,[Enum.KeyCode.Two]=2,[Enum.KeyCode.Three]=3,
+    [Enum.KeyCode.Four]=4,[Enum.KeyCode.Five]=5,[Enum.KeyCode.Six]=6,
+    [Enum.KeyCode.Seven]=7,[Enum.KeyCode.Eight]=8,[Enum.KeyCode.Nine]=9,
+    [Enum.KeyCode.Zero]=10
+}
+UIS.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if keys[input.KeyCode] then
+        equipSlot(keys[input.KeyCode])
     end
 end)
 
-task.spawn(function()
-    while task.wait(2) do
-        destroyCustomInventory()
-        modifyExistingGUI()
-    end
+-- ============================================
+-- LISTENER OTOMATIS
+-- ============================================
+local bp = player:WaitForChild("Backpack")
+bp.ChildAdded:Connect(function() task.wait(0.1) refresh() end)
+bp.ChildRemoved:Connect(function() task.wait(0.1) refresh() end)
+
+player.CharacterAdded:Connect(function(char)
+    task.wait(0.5)
+    refresh()
+    char.ChildAdded:Connect(function(c) if c:IsA("Tool") then task.wait(0.1) refresh() end end)
+    char.ChildRemoved:Connect(function(c) if c:IsA("Tool") then task.wait(0.1) refresh() end end)
 end)
 
-print("✅ Multi-Approach 10 Slot aktif!")
-print("⚠️ Kalau masih 3 slot, berarti server-side limit.")
+task.wait(1)
+refresh()
+print("✅ Custom GUI 10 Slot aktif!")
