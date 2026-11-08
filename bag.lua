@@ -1,23 +1,45 @@
--- Force Enable Backpack (Anti-Disable Loop)
 local StarterGui = game:GetService("StarterGui")
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
 
--- Matikan dulu custom UI developer (kalau ada)
-local playerGui = game:GetService("Players").LocalPlayer:FindFirstChild("PlayerGui")
-if playerGui then
-    for _, gui in ipairs(playerGui:GetChildren()) do
-        -- Hapus custom hotbar/inventory developer
-        local name = gui.Name:lower()
-        if name:find("hotbar") or name:find("inventory") or name:find("backpack") then
-            gui.Enabled = false
+-- 1. Paksa backpack default + set max slot ke 10
+local function forceBackpack()
+    pcall(function()
+        StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, true)
+    end)
+    pcall(function()
+        StarterGui:SetCore("BackpackMaxSlots", 10)
+    end)
+end
+
+-- 2. Hapus custom UI developer yang mungkin menutupi
+local function killCustomUI()
+    local pg = player:FindFirstChild("PlayerGui")
+    if not pg then return end
+    for _, gui in ipairs(pg:GetChildren()) do
+        local n = gui.Name:lower()
+        if n:find("hotbar") or n:find("inventory") or n:find("backpack")
+        or n:find("toolbar") or n:find("slot") or n:find("bag") then
+            pcall(function() gui:Destroy() end)
         end
     end
 end
 
--- Paksa aktifkan backpack default dengan loop
+-- Jalankan langsung
+forceBackpack()
+killCustomUI()
+
+-- Loop cepat lawan script developer
 task.spawn(function()
-    while task.wait(0.5) do
-        StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, true)
+    while task.wait(0.1) do
+        forceBackpack()
     end
 end)
 
-print("✅ Backpack default 10 slot dipaksa aktif!")
+task.spawn(function()
+    while task.wait(1) do
+        killCustomUI()
+    end
+end)
+
+print("✅ Force 10 Slot aktif!")
