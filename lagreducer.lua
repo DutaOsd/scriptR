@@ -11,7 +11,12 @@
 --   - Tekstur & decal hilang (objek jadi flat color)
 --   - Mesh low detail / Material jadi Plastic
 --   - Banjir cahaya dihapus, ambient dinaikkan biar tidak gelap
+--   - Rumput & daun disembunyikan (invisible, collision tetap ada)
+--
+-- ⚠️  Kalau kamu main Leaf Simulator / game yang
+--     daun-nya adalah ITEM GAME: set REMOVE_FOLIAGE = false di bawah.
 -- ════════════════════════════════════════════════════════
+local REMOVE_FOLIAGE = true
 
 local Lighting   = game:GetService("Lighting")
 local Workspace  = game:GetService("Workspace")
@@ -78,9 +83,67 @@ if Terrain then
 end
 
 -- ════════════════════════════════════════════════════════
--- 4. BERSIHKAN SEMUA INSTANCE BERAT (sekarang & yang muncul nanti)
+-- 4. RUMPUT & DAUN (invisible, collision tetap ada)
+--    Nama di-cocokkan case-insensitive. Objek jadi transparan,
+--    BUKAN dihancurkan, supaya game yang pakai daun sebagai
+--    item tetap bisa dimainkan.
+-- ════════════════════════════════════════════════════════
+local FOLIAGE_PATTERNS = {
+    "grass", "rumput", "leaf", "leaves", "daun",
+    "foliage", "bush", "shrub", "fern", "ivy", "vine",
+    "hedge", "weed", "petal", "flower",
+}
+
+local function isFoliageName(name)
+    if type(name) ~= "string" then return false end
+    local lower = string.lower(name)
+    for _, p in ipairs(FOLIAGE_PATTERNS) do
+        if string.find(lower, p, 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+local function hideVisual(obj)
+    pcall(function()
+        if obj:IsA("BasePart") then
+            obj.Transparency = 1
+            obj.CastShadow = false
+        elseif obj:IsA("Decal") or obj:IsA("Texture") then
+            obj.Transparency = 1
+        end
+    end)
+end
+
+local function removeFoliage(obj)
+    if not REMOVE_FOLIAGE then return end
+    if not isFoliageName(obj.Name) then return end
+    -- Kalau instance yang cocok adalah model/folder/part →
+    -- sembunyikan semua visual di dalamnya
+    if obj:IsA("Model") or obj:IsA("Folder") then
+        for _, d in ipairs(obj:GetDescendants()) do
+            hideVisual(d)
+        end
+    else
+        hideVisual(obj)
+    end
+end
+
+-- ════════════════════════════════════════════════════════
+-- 5. BERSIHKAN SEMUA INSTANCE BERAT (sekarang & yang muncul nanti)
 -- ════════════════════════════════════════════════════════
 local function sanitize(obj)
+    removeFoliage(obj)
+    -- Kalau ancestor adalah foliage (mis. streaming), ikut sembunyikan
+    local p = obj.Parent
+    while p and p ~= Workspace do
+        if isFoliageName(p.Name) then
+            removeFoliage(p)
+            break
+        end
+        p = p.Parent
+    end
     pcall(function()
         -- Mesh paling kasar
         if obj:IsA("MeshPart") then
@@ -134,11 +197,12 @@ Lighting.ChildAdded:Connect(function(child)
 end)
 
 -- ════════════════════════════════════════════════════════
--- 5. BERSIHKAN MEMORI
+-- 6. BERSIHKAN MEMORI
 -- ════════════════════════════════════════════════════════
 try(function() collectgarbage("collect") end)
 try(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level01 end)
 
 print(string.format("✅ Lag Reducer HARDCORE selesai! %d optimasi diterapkan.", OK))
+print("🌿 Rumput & daun disembunyikan (invisible, collision tetap ada).")
 print("⚠️  Tampilan akan terlihat 'flat' (tanpa tekstur/bayangan/VFX).")
 print("🔄 Untuk kembali normal: REJOIN server.")
