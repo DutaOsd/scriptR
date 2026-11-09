@@ -12,6 +12,20 @@ local StarterGui = game:GetService("StarterGui")
 local player = Players.LocalPlayer
 local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
+-- ════════════════════════════════════════════
+-- VIEWPORT CLAMP HELPERS (GUI pas di layar)
+-- ════════════════════════════════════════════
+local function getVpSize()
+    local cam = Workspace.CurrentCamera
+    local ok, size = pcall(function() return cam.ViewportSize end)
+    if ok and size and size.X > 0 and size.Y > 0 then return size end
+    return Vector2.new(1280, 720)
+end
+local function clampToVp(x, y, w, h)
+    local vp = getVpSize()
+    return math.clamp(x, 0, math.max(0, vp.X - w)), math.clamp(y, 0, math.max(0, vp.Y - h))
+end
+
 print("🛒 Shop Finder Pro Clean - Starting...")
 
 -- ================== ANTI-AFK SYSTEM ==================
@@ -435,13 +449,39 @@ MiniIcon.Font             = Enum.Font.GothamBold
 MiniIcon.TextColor3       = Color3.new(1, 1, 1)
 MiniIcon.Visible          = false
 MiniIcon.Active           = true
-MiniIcon.Draggable        = true
+MiniIcon.Draggable        = false
 MiniIcon.Parent           = ScreenGui
 Instance.new("UICorner", MiniIcon).CornerRadius = UDim.new(0, 12)
 
 local miniStroke = Instance.new("UIStroke", MiniIcon)
 miniStroke.Color     = Color3.fromRGB(100, 100, 255)
 miniStroke.Thickness = 2
+
+-- Drag mini icon dengan clamp ke layar (tap = restore, drag = pindah)
+local iconDragMoved = 0
+do
+    local dragging, dStart, sPos = false, nil, nil
+    MiniIcon.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true; iconDragMoved = 0; dStart = input.Position; sPos = MiniIcon.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if not dragging then return end
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            local delta = input.Position - dStart
+            iconDragMoved = math.max(iconDragMoved, delta.Magnitude)
+            local vp = getVpSize()
+            local absX = sPos.X.Scale * vp.X + sPos.X.Offset + delta.X
+            local absY = sPos.Y.Scale * vp.Y + sPos.Y.Offset + delta.Y
+            local nx, ny = clampToVp(absX, absY, MiniIcon.AbsoluteSize.X, MiniIcon.AbsoluteSize.Y)
+            MiniIcon.Position = UDim2.new(0, nx, 0, ny)
+        end
+    end)
+end
 
 local function startPulse()
     task.spawn(function()
@@ -460,10 +500,17 @@ local function startPulse()
 end
 
 -- ================== MAIN FRAME ==================
+local MainSize, MainPos
+if isMobile then
+    MainSize, MainPos = UDim2.new(0.92, 0, 0.72, 0), UDim2.new(0.04, 0, 0.14, 0)
+else
+    local vp = getVpSize()
+    MainSize, MainPos = UDim2.new(0, math.min(420, vp.X - 16), 0, math.min(580, vp.Y - 16)), UDim2.new(0, 12, 0, 12)
+end
 local Main = Instance.new("Frame")
 Main.Name             = "MainFrame"
-Main.Size             = isMobile and UDim2.new(0.92, 0, 0.72, 0) or UDim2.new(0, 420, 0, 580)
-Main.Position         = isMobile and UDim2.new(0.04, 0, 0.14, 0) or UDim2.new(0.02, 0, 0.1, 0)
+Main.Size             = MainSize
+Main.Position         = MainPos
 Main.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
 Main.BorderSizePixel  = 0
 Main.Active           = true
@@ -498,8 +545,8 @@ local function restoreGUI()
     isMinimized      = false
     MiniIcon.Visible = false
     Main.Visible     = true
-    local tSize = isMobile and UDim2.new(0.92, 0, 0.72, 0) or UDim2.new(0, 420, 0, 580)
-    local tPos  = isMobile and UDim2.new(0.04, 0, 0.14, 0) or UDim2.new(0.02, 0, 0.1, 0)
+    local tSize = MainSize
+    local tPos  = MainPos
     TweenService:Create(Main, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
         {Size = tSize, Position = tPos}):Play()
 end
@@ -1239,32 +1286,35 @@ player.CharacterAdded:Connect(function()
     end)
 end)
 
--- ================== MOBILE DRAG ==================
-if isMobile then
+-- ================== DRAG (mouse + touch, diklam layar) ==================
+do
     local dragging  = false
     local dragStart, startPos
+    local titleBlockInput = nil
+    MinBtn.InputBegan:Connect(function(input) titleBlockInput = input end)
+    CloseBtn.InputBegan:Connect(function(input) titleBlockInput = input end)
 
     TitleBar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch then
+        if input == titleBlockInput then return end
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging  = true
             dragStart = input.Position
             startPos  = Main.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
         end
     end)
 
-    TitleBar.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch and dragging then
+    UserInputService.InputChanged:Connect(function(input)
+        if not dragging then return end
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
             local delta = input.Position - dragStart
-            Main.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + delta.X,
-                startPos.Y.Scale, startPos.Y.Offset + delta.Y
-            )
-        end
-    end)
-
-    TitleBar.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
+            local vp = getVpSize()
+            local absX = startPos.X.Scale * vp.X + startPos.X.Offset + delta.X
+            local absY = startPos.Y.Scale * vp.Y + startPos.Y.Offset + delta.Y
+            local nx, ny = clampToVp(absX, absY, Main.AbsoluteSize.X, Main.AbsoluteSize.Y)
+            Main.Position = UDim2.new(0, nx, 0, ny)
         end
     end)
 end

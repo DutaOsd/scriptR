@@ -15,6 +15,18 @@ local ts = game:GetService("TweenService")
 local plr = plrs.LocalPlayer
 local pg = plr:WaitForChild("PlayerGui")
 
+-- VIEWPORT CLAMP HELPERS (GUI pas di layar)
+local cam = workspace.CurrentCamera
+local function vpSize()
+    local ok, s = pcall(function() return cam.ViewportSize end)
+    if ok and s and s.X > 0 and s.Y > 0 then return s end
+    return Vector2.new(1280, 720)
+end
+local function clampAbs(x, y, w, h)
+    local vp = vpSize()
+    return math.clamp(x, 0, math.max(0, vp.X - w)), math.clamp(y, 0, math.max(0, vp.Y - h))
+end
+
 -- ========================================
 -- REJOIN FUNCTION
 -- ========================================
@@ -88,11 +100,15 @@ local function create_gui()
     info.Font = Enum.Font.Gotham
     info.Parent = btn
     
-    -- Confirmation Dialog (hidden by default)
+    -- Confirmation Dialog (hidden by default) — diklam agar muat layar
+    local vp = vpSize()
+    local dialogW = math.min(300, vp.X - 16)
+    local dialogH = math.min(150, vp.Y - 16)
+    local dialogX, dialogY = clampAbs((vp.X - dialogW) / 2, (vp.Y - dialogH) / 2, dialogW, dialogH)
     local dialog = Instance.new("Frame")
     dialog.Name = "Dialog"
-    dialog.Size = UDim2.new(0, 300, 0, 150)
-    dialog.Position = UDim2.new(0.5, -150, 0.5, -75)
+    dialog.Size = UDim2.new(0, dialogW, 0, dialogH)
+    dialog.Position = UDim2.new(0, dialogX, 0, dialogY)
     dialog.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
     dialog.BorderSizePixel = 0
     dialog.Visible = false
@@ -271,12 +287,11 @@ local function create_gui()
         if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or
            input.UserInputType == Enum.UserInputType.Touch) then
             local delta = input.Position - drag_start
-            btn.Position = UDim2.new(
-                start_pos.X.Scale,
-                start_pos.X.Offset + delta.X,
-                start_pos.Y.Scale,
-                start_pos.Y.Offset + delta.Y
-            )
+            local vp = vpSize()
+            local absX = start_pos.X.Scale * vp.X + start_pos.X.Offset + delta.X
+            local absY = start_pos.Y.Scale * vp.Y + start_pos.Y.Offset + delta.Y
+            local nx, ny = clampAbs(absX, absY, btn.AbsoluteSize.X, btn.AbsoluteSize.Y)
+            btn.Position = UDim2.new(0, nx, 0, ny)
         end
     end)
     

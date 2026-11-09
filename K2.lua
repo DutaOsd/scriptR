@@ -351,12 +351,12 @@ end)
 -- ═══════════════════════════════════════════
 local screenX = Camera.ViewportSize.X
 local screenY = Camera.ViewportSize.Y
-local frameW = IsMobile and math.min(320, screenX - 20) or 340
-local frameH = IsMobile and math.min(520, screenY - 60) or 580
+local frameW = math.min(IsMobile and 320 or 340, screenX - 20)
+local frameH = math.min(IsMobile and 520 or 580, screenY - 40)
 
 local MainFrame = Instance.new("Frame")
 MainFrame.Size = UDim2.new(0, frameW, 0, frameH)
-MainFrame.Position = UDim2.new(0.5, -frameW/2, 0.5, -frameH/2)
+MainFrame.Position = UDim2.new(0, math.floor((screenX - frameW) / 2), 0, math.floor((screenY - frameH) / 2))
 MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -1525,14 +1525,22 @@ do
 	UserInputService.TouchMoved:Connect(function(touch, gp)
 		if dragging and dragStart then
 			local delta = touch.Position - dragStart
-			MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+			local absX = startPos.X.Scale * screenX + startPos.X.Offset + delta.X
+			local absY = startPos.Y.Scale * screenY + startPos.Y.Offset + delta.Y
+			MainFrame.Position = UDim2.new(0,
+				math.clamp(absX, 0, math.max(0, screenX - frameW)),
+				math.clamp(absY, 0, math.max(0, screenY - frameH)))
 		end
 	end)
 
 	UserInputService.InputChanged:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseMovement and dragging and dragStart then
 			local delta = input.Position - dragStart
-			MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+			local absX = startPos.X.Scale * screenX + startPos.X.Offset + delta.X
+			local absY = startPos.Y.Scale * screenY + startPos.Y.Offset + delta.Y
+			MainFrame.Position = UDim2.new(0,
+				math.clamp(absX, 0, math.max(0, screenX - frameW)),
+				math.clamp(absY, 0, math.max(0, screenY - frameH)))
 		end
 	end)
 
@@ -1543,26 +1551,37 @@ do
 	end)
 end
 
--- Mini icon draggable
+-- Mini icon draggable (diklam layar)
+local iconDragMoved = 0
 do
 	local d2, ds2, sp2 = false, nil, nil
 
 	MiniIcon.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			d2 = true; ds2 = input.Position; sp2 = MiniIcon.Position
+			d2 = true; ds2 = input.Position; sp2 = MiniIcon.Position; iconDragMoved = 0
 		end
 	end)
 
 	UserInputService.TouchMoved:Connect(function(t, gp)
 		if d2 and ds2 then
 			local delta = t.Position - ds2
-			MiniIcon.Position = UDim2.new(sp2.X.Scale, sp2.X.Offset + delta.X, sp2.Y.Scale, sp2.Y.Offset + delta.Y)
+			iconDragMoved = math.max(iconDragMoved, delta.Magnitude)
+			local absX = sp2.X.Scale * screenX + sp2.X.Offset + delta.X
+			local absY = sp2.Y.Scale * screenY + sp2.Y.Offset + delta.Y
+			MiniIcon.Position = UDim2.new(0,
+				math.clamp(absX, 0, math.max(0, screenX - 60)),
+				math.clamp(absY, 0, math.max(0, screenY - 60)))
 		end
 	end)
 	UserInputService.InputChanged:Connect(function(input)
 		if d2 and ds2 and input.UserInputType == Enum.UserInputType.MouseMovement then
 			local delta = input.Position - ds2
-			MiniIcon.Position = UDim2.new(sp2.X.Scale, sp2.X.Offset + delta.X, sp2.Y.Scale, sp2.Y.Offset + delta.Y)
+			iconDragMoved = math.max(iconDragMoved, delta.Magnitude)
+			local absX = sp2.X.Scale * screenX + sp2.X.Offset + delta.X
+			local absY = sp2.Y.Scale * screenY + sp2.Y.Offset + delta.Y
+			MiniIcon.Position = UDim2.new(0,
+				math.clamp(absX, 0, math.max(0, screenX - 60)),
+				math.clamp(absY, 0, math.max(0, screenY - 60)))
 		end
 	end)
 	UserInputService.InputEnded:Connect(function(input)
@@ -1576,11 +1595,12 @@ end
 -- MINIMIZE
 -- ═══════════════════════════════════════════
 MinBtn.MouseButton1Click:Connect(function()
-	local cx = MainFrame.Position.X.Offset + frameW/2
-	local cy = MainFrame.Position.Y.Offset + frameH/2
+	local curPos = MainFrame.Position
+	local cx = curPos.X.Scale * screenX + curPos.X.Offset + frameW/2
+	local cy = curPos.Y.Scale * screenY + curPos.Y.Offset + frameH/2
 	SafeTween(MainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
 		Size = UDim2.new(0, 0, 0, 0),
-		Position = UDim2.new(MainFrame.Position.X.Scale, cx, MainFrame.Position.Y.Scale, cy)
+		Position = UDim2.new(0, cx, 0, cy)
 	})
 	task.wait(0.32)
 	MainFrame.Visible = false
@@ -1595,6 +1615,7 @@ end)
 -- RESTORE
 local lastIconClick = 0
 MiniIcon.MouseButton1Click:Connect(function()
+	if iconDragMoved > 8 then return end
 	if tick() - lastIconClick < 0.4 then return end
 	lastIconClick = tick()
 	SafeTween(MiniIcon, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {

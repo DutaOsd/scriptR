@@ -51,6 +51,23 @@ end
 local isMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
 
 -- ════════════════════════════════════════════════════════
+-- VIEWPORT + CLAMP HELPERS (agar GUI tidak keluar layar)
+-- ════════════════════════════════════════════════════════
+local camera = workspace.CurrentCamera
+local function getViewport()
+    local size = camera and camera.ViewportSize or nil
+    if size and size.X > 0 and size.Y > 0 then return size end
+    return Vector2.new(1280, 720)
+end
+
+local function clampToViewport(absX, absY, objW, objH)
+    local vp = getViewport()
+    local maxX = math.max(0, vp.X - objW)
+    local maxY = math.max(0, vp.Y - objH)
+    return math.clamp(absX, 0, maxX), math.clamp(absY, 0, maxY)
+end
+
+-- ════════════════════════════════════════════════════════
 -- CLEANUP GUI LAMA
 -- ════════════════════════════════════════════════════════
 local guiParent = nil
@@ -132,10 +149,18 @@ sg.IgnoreGuiInset = true
 sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 sg.Parent = guiParent
 
+local PANEL_W = isMobile and 320 or 380
+local PANEL_H = isMobile and 420 or 460
+local vp = getViewport()
+-- Ukuran panel tidak boleh lebih besar dari layar (dengan margin 16px)
+local panelW = math.min(PANEL_W, vp.X - 16)
+local panelH = math.min(PANEL_H, vp.Y - 16)
+local startX, startY = clampToViewport((vp.X - panelW) / 2, (vp.Y - panelH) / 2, panelW, panelH)
+
 local main = Instance.new("Frame")
 main.Name = "Main"
-main.Size = isMobile and UDim2.new(0, 320, 0, 420) or UDim2.new(0, 380, 0, 460)
-main.Position = UDim2.new(0.5, -main.Size.X.Offset / 2, 0.5, -main.Size.Y.Offset / 2)
+main.Size = UDim2.new(0, panelW, 0, panelH)
+main.Position = UDim2.new(0, startX, 0, startY)
 main.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
 main.BorderSizePixel = 0
 main.Parent = sg
@@ -298,22 +323,72 @@ for _, entry in ipairs(SCRIPTS) do
     makeScriptButton(entry)
 end
 
--- ===== Minimize / Close =====
-local minimized = false
-local expandedSize = main.Size
-minimizeBtn.MouseButton1Click:Connect(function()
-    minimized = not minimized
-    if minimized then
-        scroll.Visible = false
-        status.Visible = false
-        TweenService:Create(main, TweenInfo.new(0.2), { Size = UDim2.new(expandedSize.X.Scale, expandedSize.X.Offset, 0, 46) }):Play()
-        minimizeBtn.Text = "+"
-    else
-        scroll.Visible = true
-        status.Visible = true
-        TweenService:Create(main, TweenInfo.new(0.2), { Size = expandedSize }):Play()
-        minimizeBtn.Text = "–"
+-- ===== Floating minimize icon (muncul saat minimize) =====
+local MIN_ICON_SIZE = 54
+
+local minIcon = Instance.new("TextButton")
+minIcon.Name = "MinIcon"
+minIcon.Size = UDim2.new(0, MIN_ICON_SIZE, 0, MIN_ICON_SIZE)
+minIcon.Position = UDim2.new(0, 20, 0.4, 0)
+minIcon.BackgroundColor3 = Color3.fromRGB(120, 90, 255)
+minIcon.Text = "S"
+minIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
+minIcon.Font = Enum.Font.GothamBlack
+minIcon.TextSize = 26
+minIcon.AutoButtonColor = false
+minIcon.Visible = false
+minIcon.ZIndex = 400
+minIcon.Parent = sg
+
+local minIconCorner = Instance.new("UICorner")
+minIconCorner.CornerRadius = UDim.new(0, MIN_ICON_SIZE / 2)
+minIconCorner.Parent = minIcon
+
+local minIconStroke = Instance.new("UIStroke")
+minIconStroke.Color = Color3.fromRGB(205, 195, 255)
+minIconStroke.Thickness = 2
+minIconStroke.Transparency = 0.15
+minIconStroke.Parent = minIcon
+
+-- Tap vs drag detection (tap = restore, drag = pindah posisi)
+local iDrag, iDragStart, iStartPos, iMoved = false, nil, nil, 0
+minIcon.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        iDrag = true
+        iMoved = 0
+        iDragStart = input.Position
+        iStartPos = minIcon.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                iDrag = false
+            end
+        end)
     end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if iDrag and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - iDragStart
+        iMoved = math.max(iMoved, delta.Magnitude)
+        -- Clamp: icon tidak boleh keluar layar
+        local nx, ny = clampToViewport(iStartPos.X.Offset + delta.X, iStartPos.Y.Offset + delta.Y, MIN_ICON_SIZE, MIN_ICON_SIZE)
+        minIcon.Position = UDim2.new(0, nx, 0, ny)
+    end
+end)
+
+minIcon.MouseButton1Click:Connect(function()
+    if iMoved > 8 then return end -- tadi digeser, jangan restore
+    minIcon.Visible = false
+    main.Visible = true
+end)
+
+minimizeBtn.MouseButton1Click:Connect(function()
+    -- Sembunyikan panel, tampilkan icon di dekat posisi panel (clamp ke layar)
+    local mp = main.Position
+    local nx, ny = clampToViewport(mp.X.Offset, mp.Y.Offset, MIN_ICON_SIZE, MIN_ICON_SIZE)
+    minIcon.Position = UDim2.new(0, nx, 0, ny)
+    main.Visible = false
+    minIcon.Visible = true
 end)
 
 closeBtn.MouseButton1Click:Connect(function()
@@ -345,10 +420,9 @@ end)
 UserInputService.InputChanged:Connect(function(input)
     if dragging and input == dragInput then
         local delta = input.Position - dragStart
-        main.Position = UDim2.new(
-            startPos.X.Scale, startPos.X.Offset + delta.X,
-            startPos.Y.Scale, startPos.Y.Offset + delta.Y
-        )
+        -- Clamp: panel tidak boleh keluar layar
+        local nx, ny = clampToViewport(startPos.X.Offset + delta.X, startPos.Y.Offset + delta.Y, main.AbsoluteSize.X, main.AbsoluteSize.Y)
+        main.Position = UDim2.new(0, nx, 0, ny)
     end
 end)
 

@@ -15,6 +15,19 @@ local Camera = workspace.CurrentCamera
 local isMobile = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 -- ════════════════════════════════════════════════════════
+-- VIEWPORT CLAMP HELPERS (GUI pas di layar)
+-- ════════════════════════════════════════════════════════
+local function vpSize()
+    local ok, s = pcall(function() return Camera.ViewportSize end)
+    if ok and s and s.X > 0 and s.Y > 0 then return s end
+    return Vector2.new(1280, 720)
+end
+local function clampAbs(x, y, w, h)
+    local vp = vpSize()
+    return math.clamp(x, 0, math.max(0, vp.X - w)), math.clamp(y, 0, math.max(0, vp.Y - h))
+end
+
+-- ════════════════════════════════════════════════════════
 -- HAPUS GUI LAMA
 -- ════════════════════════════════════════════════════════
 local oldGui = LP.PlayerGui:FindFirstChild("VisionControlGUI")
@@ -172,7 +185,11 @@ UIS.InputChanged:Connect(function(input)
     if tDrag and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
         local d = input.Position - tDS
         if d.Magnitude > 5 then
-            ToggleBtn.Position = UDim2.new(tSP.X.Scale, tSP.X.Offset + d.X, tSP.Y.Scale, tSP.Y.Offset + d.Y)
+            local vp = vpSize()
+            local absX = tSP.X.Scale * vp.X + tSP.X.Offset + d.X
+            local absY = tSP.Y.Scale * vp.Y + tSP.Y.Offset + d.Y
+            local nx, ny = clampAbs(absX, absY, ToggleBtn.AbsoluteSize.X, ToggleBtn.AbsoluteSize.Y)
+            ToggleBtn.Position = UDim2.new(0, nx, 0, ny)
         end
     end
 end)
@@ -180,8 +197,9 @@ end)
 -- ════════════════════════════════════════════════════════
 -- MAIN PANEL
 -- ════════════════════════════════════════════════════════
-local PW = isMobile and 300 or 340
-local PH = isMobile and 580 or 620
+local vp0 = vpSize()
+local PW = math.min(isMobile and 300 or 340, vp0.X - 16)
+local PH = math.min(isMobile and 580 or 620, vp0.Y - 16)
 local panelOpen = false
 
 local Panel = Instance.new("Frame", GUI)
@@ -206,7 +224,11 @@ end)
 UIS.InputChanged:Connect(function(input)
     if pD and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
         local d = input.Position - pDS
-        Panel.Position = UDim2.new(pSP.X.Scale, pSP.X.Offset + d.X, pSP.Y.Scale, pSP.Y.Offset + d.Y)
+        local vp = vpSize()
+        local absX = pSP.X.Scale * vp.X + pSP.X.Offset + d.X
+        local absY = pSP.Y.Scale * vp.Y + pSP.Y.Offset + d.Y
+        local nx, ny = clampAbs(absX, absY, Panel.AbsoluteSize.X, Panel.AbsoluteSize.Y)
+        Panel.Position = UDim2.new(0, nx, 0, ny)
     end
 end)
 

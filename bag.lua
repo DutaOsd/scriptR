@@ -33,9 +33,11 @@ layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 layout.Padding = UDim.new(0, 3)
 layout.Parent = main
 
--- Deteksi layar mobile biar ukuran pas
+-- Deteksi layar mobile biar ukuran pas + diklam agar muat layar
 local isMobile = UIS.TouchEnabled
-local slotSize = isMobile and 42 or 50
+local vp = (workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(1280, 720)
+local maxSlot = math.floor((vp.X - 16 - 27 - 10) / 10) -- 10 slot + 9 gap(3px) + padding
+local slotSize = math.max(26, math.min(isMobile and 42 or 50, maxSlot))
 
 -- Buat 10 slot
 local slots = {}

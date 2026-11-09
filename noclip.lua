@@ -13,10 +13,14 @@ ScreenGui.Name = "GrokNoClip"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = game.CoreGui
 
--- Main Frame
+-- Main Frame — diklam agar muat layar
+local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
+local mainW = math.min(300, vp.X - 16)
+local mainH = math.min(200, vp.Y - 16)
+local mainX, mainY = math.floor((vp.X - mainW) / 2), math.floor((vp.Y - mainH) / 2)
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 300, 0, 200)
-MainFrame.Position = UDim2.new(0.5, -150, 0.5, -100)
+MainFrame.Size = UDim2.new(0, mainW, 0, mainH)
+MainFrame.Position = UDim2.new(0, mainX, 0, mainY)
 MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
 MainFrame.BorderSizePixel = 0
 MainFrame.Visible = false
@@ -127,7 +131,12 @@ MainFrame.InputBegan:Connect(function(input)
         connection = UserInputService.InputChanged:Connect(function(inp)
             if inp.UserInputType == Enum.UserInputType.MouseMovement and dragging then
                 local delta = inp.Position - mousePos
-                MainFrame.Position = UDim2.new(framePos.X.Scale, framePos.X.Offset + delta.X, framePos.Y.Scale, framePos.Y.Offset + delta.Y)
+                local v2 = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
+                local absX = framePos.X.Scale * v2.X + framePos.X.Offset + delta.X
+                local absY = framePos.Y.Scale * v2.Y + framePos.Y.Offset + delta.Y
+                local nx = math.clamp(absX, 0, math.max(0, v2.X - MainFrame.AbsoluteSize.X))
+                local ny = math.clamp(absY, 0, math.max(0, v2.Y - MainFrame.AbsoluteSize.Y))
+                MainFrame.Position = UDim2.new(0, nx, 0, ny)
             end
         end)
         

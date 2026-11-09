@@ -162,7 +162,7 @@ MinimizedBox.TextSize      = isMobile and 32 or 26
 MinimizedBox.Font          = Enum.Font.GothamBold
 MinimizedBox.Visible       = false
 MinimizedBox.Active        = true
-MinimizedBox.Draggable     = true
+MinimizedBox.Draggable     = false
 MinimizedBox.ZIndex        = 100
 MinimizedBox.Parent        = ScreenGui
 Instance.new("UICorner", MinimizedBox).CornerRadius = UDim.new(0.3,0)
@@ -170,6 +170,34 @@ Instance.new("UICorner", MinimizedBox).CornerRadius = UDim.new(0.3,0)
 local MinBoxStroke = Instance.new("UIStroke", MinimizedBox)
 MinBoxStroke.Color     = Color3.fromRGB(80,100,255)
 MinBoxStroke.Thickness = 3
+
+-- Drag mini-box dengan clamp ke layar (tap = restore, drag = pindah)
+local iconDragMoved = 0
+do
+    local dragging, dStart, sPos = false, nil, nil
+    MinimizedBox.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true; iconDragMoved = 0; dStart = input.Position; sPos = MinimizedBox.Position
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if not dragging then return end
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            local delta = input.Position - dStart
+            iconDragMoved = math.max(iconDragMoved, delta.Magnitude)
+            local vp = getVpSize()
+            local absX = sPos.X.Scale * vp.X + sPos.X.Offset + delta.X
+            local absY = sPos.Y.Scale * vp.Y + sPos.Y.Offset + delta.Y
+            local nx, ny = clampToVp(absX, absY, MinimizedBox.AbsoluteSize.X, MinimizedBox.AbsoluteSize.Y)
+            MinimizedBox.Position = UDim2.new(0, nx, 0, ny)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+end
 
 task.spawn(function()
     while ScreenGui.Parent do
@@ -192,12 +220,16 @@ end)
 -- MAIN FRAME
 -- ════════════════════════════════════════════
 local Main = Instance.new("Frame")
+local MainSize
 if isMobile then
-    Main.Size     = UDim2.new(0.93,0,0.8,0)
+    MainSize      = UDim2.new(0.93,0,0.8,0)
+    Main.Size     = MainSize
     Main.Position = UDim2.new(0.035,0,0.1,0)
 else
-    Main.Size     = UDim2.new(0,430,0,670)
-    Main.Position = UDim2.new(0.02,0,0.03,0)
+    local vp = getVpSize()
+    MainSize      = UDim2.new(0, math.min(430, vp.X - 16), 0, math.min(670, vp.Y - 16))
+    Main.Size     = MainSize
+    Main.Position = UDim2.new(0, 12, 0, 12)
 end
 Main.BackgroundColor3 = Color3.fromRGB(22,22,34)
 Main.BorderSizePixel  = 0
@@ -298,7 +330,38 @@ MinimizeBtn.MouseButton1Click:Connect(function()
     }):Play()
 end)
 
+-- ════════════════════════════════════════════
+-- TITLE BAR DRAG (diklam layar, mouse + touch)
+-- ════════════════════════════════════════════
+local titleBlockInput = nil
+MinimizeBtn.InputBegan:Connect(function(input) titleBlockInput = input end)
+CloseBtn.InputBegan:Connect(function(input) titleBlockInput = input end)
+do
+    local dragging, dStart, sPos = false, nil, nil
+    TitleBar.InputBegan:Connect(function(input)
+        if input == titleBlockInput then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true; dStart = input.Position; sPos = Main.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if not dragging then return end
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            local delta = input.Position - dStart
+            local vp = getVpSize()
+            local absX = sPos.X.Scale * vp.X + sPos.X.Offset + delta.X
+            local absY = sPos.Y.Scale * vp.Y + sPos.Y.Offset + delta.Y
+            local nx, ny = clampToVp(absX, absY, Main.AbsoluteSize.X, Main.AbsoluteSize.Y)
+            Main.Position = UDim2.new(0, nx, 0, ny)
+        end
+    end)
+end
+
 MinimizedBox.MouseButton1Click:Connect(function()
+    if iconDragMoved > 8 then return end
     TweenService:Create(MinimizedBox, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.In), {
         Size = UDim2.new(0,0,0,0)
     }):Play()

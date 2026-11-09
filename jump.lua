@@ -25,6 +25,20 @@ if oldGui then oldGui:Destroy() end
 -- ════════════════════════════════════════════════════════
 -- NILAI DEFAULT
 -- ════════════════════════════════════════════════════════
+-- VIEWPORT CLAMP HELPERS (GUI pas di layar)
+local Camera = workspace.CurrentCamera
+local function vpSize()
+    local ok, s = pcall(function() return Camera.ViewportSize end)
+    if ok and s and s.X > 0 and s.Y > 0 then return s end
+    return Vector2.new(1280, 720)
+end
+local function clampAbs(x, y, w, h)
+    local vp = vpSize()
+    return math.clamp(x, 0, math.max(0, vp.X - w)), math.clamp(y, 0, math.max(0, vp.Y - h))
+end
+local PANEL_W = math.min(280, vpSize().X - 16)
+local PANEL_H_MAX = math.min(370, vpSize().Y - 32)
+
 local Values = {
     Size = 120,
     FromRight = 40,
@@ -145,10 +159,11 @@ UIS.InputChanged:Connect(function(input)
     if tDrag and input.UserInputType == Enum.UserInputType.Touch then
         local d = input.Position - tDragStart
         if d.Magnitude > 6 then
-            ToggleBtn.Position = UDim2.new(
-                tStartPos.X.Scale, tStartPos.X.Offset + d.X,
-                tStartPos.Y.Scale, tStartPos.Y.Offset + d.Y
-            )
+            local vp = vpSize()
+            local absX = tStartPos.X.Scale * vp.X + tStartPos.X.Offset + d.X
+            local absY = tStartPos.Y.Scale * vp.Y + tStartPos.Y.Offset + d.Y
+            local nx, ny = clampAbs(absX, absY, ToggleBtn.AbsoluteSize.X, ToggleBtn.AbsoluteSize.Y)
+            ToggleBtn.Position = UDim2.new(0, nx, 0, ny)
         end
     end
 end)
@@ -159,8 +174,8 @@ end)
 local panelOpen = false
 
 local Panel = Instance.new("Frame", GUI)
-Panel.Size = UDim2.new(0, 280, 0, 0)
-Panel.Position = UDim2.new(0.5, -140, 0.5, -160)
+Panel.Size = UDim2.new(0, PANEL_W, 0, 0)
+Panel.Position = UDim2.new(0.5, -PANEL_W/2, 0.5, -PANEL_H_MAX/2)
 Panel.BackgroundColor3 = C.bg
 Panel.ClipsDescendants = true
 Panel.Visible = false
@@ -263,10 +278,11 @@ end)
 UIS.InputChanged:Connect(function(input)
     if pDrag and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
         local d = input.Position - pDragStart
-        Panel.Position = UDim2.new(
-            pStartPos.X.Scale, pStartPos.X.Offset + d.X,
-            pStartPos.Y.Scale, pStartPos.Y.Offset + d.Y
-        )
+        local vp = vpSize()
+        local absX = pStartPos.X.Scale * vp.X + pStartPos.X.Offset + d.X
+        local absY = pStartPos.Y.Scale * vp.Y + pStartPos.Y.Offset + d.Y
+        local nx, ny = clampAbs(absX, absY, Panel.AbsoluteSize.X, Panel.AbsoluteSize.Y)
+        Panel.Position = UDim2.new(0, nx, 0, ny)
     end
 end)
 
@@ -699,18 +715,18 @@ CreateResetButton(Content)
 -- ════════════════════════════════════════════════════════
 -- PANEL OPEN/CLOSE
 -- ════════════════════════════════════════════════════════
-local PANEL_H = 370
+local PANEL_H = PANEL_H_MAX
 
 local function OpenPanel()
     panelOpen = true
     Panel.Visible = true
-    Panel.Size = UDim2.new(0, 280, 0, 0)
-    Tween(Panel, 0.35, {Size = UDim2.new(0, 280, 0, PANEL_H)})
+    Panel.Size = UDim2.new(0, PANEL_W, 0, 0)
+    Tween(Panel, 0.35, {Size = UDim2.new(0, PANEL_W, 0, PANEL_H)})
 end
 
 local function ClosePanel()
     panelOpen = false
-    Tween(Panel, 0.25, {Size = UDim2.new(0, 280, 0, 0)})
+    Tween(Panel, 0.25, {Size = UDim2.new(0, PANEL_W, 0, 0)})
     task.delay(0.25, function()
         Panel.Visible = false
     end)

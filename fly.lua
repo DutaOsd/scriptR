@@ -491,7 +491,8 @@ local function DoRestore()
 		Size = UDim2.new(0, panelW, 0, panelH)
 	})
 end
-MiniIcon.MouseButton1Click:Connect(DoRestore)
+local iconMoved = 0
+MiniIcon.MouseButton1Click:Connect(function() if iconMoved > 8 then return end DoRestore() end)
 MiniIcon.TouchTap:Connect(DoRestore)
 
 -- Close Action
@@ -629,6 +630,7 @@ do
 		if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
 			md = true; ms = Vector2.new(i.Position.X, i.Position.Y)
 			fs = Vector2.new(MiniIcon.Position.X.Offset, MiniIcon.Position.Y.Offset)
+			iconMoved = 0
 		end
 	end)
 	UserInputService.InputChanged:Connect(function(i)
@@ -636,6 +638,7 @@ do
 		if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseMovement then
 			local d = Vector2.new(i.Position.X, i.Position.Y) - ms
 			if d.Magnitude > 5 then
+				iconMoved = math.max(iconMoved, d.Magnitude)
 				MiniIcon.Position = UDim2.new(0, math.clamp(fs.X + d.X, 0, vpX - 38), 0, math.clamp(fs.Y + d.Y, 0, vpY - 38))
 			end
 		end

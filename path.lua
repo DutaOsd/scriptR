@@ -23,6 +23,19 @@ local isMobile = (function()
 end)()
 
 -- ════════════════════════════════════════════
+-- VIEWPORT CLAMP HELPERS (GUI pas di layar)
+-- ════════════════════════════════════════════
+local function getVpSize()
+    local ok, size = pcall(function() return Camera.ViewportSize end)
+    if ok and size and size.X > 0 and size.Y > 0 then return size end
+    return Vector2.new(1280, 720)
+end
+local function clampToVp(x, y, w, h)
+    local vp = getVpSize()
+    return math.clamp(x, 0, math.max(0, vp.X - w)), math.clamp(y, 0, math.max(0, vp.Y - h))
+end
+
+-- ════════════════════════════════════════════
 -- CLEANUP
 -- ════════════════════════════════════════════
 pcall(function()
@@ -230,7 +243,7 @@ MiniIcon.Font             = Enum.Font.GothamBold
 MiniIcon.TextColor3       = Color3.new(1,1,1)
 MiniIcon.Visible          = false
 MiniIcon.Active           = true
-MiniIcon.Draggable        = true
+MiniIcon.Draggable        = false
 MiniIcon.ZIndex           = 100
 MiniIcon.Parent           = ScreenGui
 Instance.new("UICorner", MiniIcon).CornerRadius = UDim.new(0.3,0)
@@ -238,6 +251,34 @@ Instance.new("UICorner", MiniIcon).CornerRadius = UDim.new(0.3,0)
 local MiniStroke = Instance.new("UIStroke", MiniIcon)
 MiniStroke.Color     = Color3.fromRGB(80,130,255)
 MiniStroke.Thickness = 3
+
+-- Drag icon mini dengan clamp ke layar (tap = restore, drag = pindah)
+local iconDragMoved = 0
+do
+    local dragging, dStart, sPos = false, nil, nil
+    MiniIcon.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true; iconDragMoved = 0; dStart = input.Position; sPos = MiniIcon.Position
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if not dragging then return end
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            local delta = input.Position - dStart
+            iconDragMoved = math.max(iconDragMoved, delta.Magnitude)
+            local vp = getVpSize()
+            local absX = sPos.X.Scale * vp.X + sPos.X.Offset + delta.X
+            local absY = sPos.Y.Scale * vp.Y + sPos.Y.Offset + delta.Y
+            local nx, ny = clampToVp(absX, absY, MiniIcon.AbsoluteSize.X, MiniIcon.AbsoluteSize.Y)
+            MiniIcon.Position = UDim2.new(0, nx, 0, ny)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+end
 
 task.spawn(function()
     while ScreenGui.Parent do
@@ -268,7 +309,7 @@ end
 Main.BackgroundColor3 = Color3.fromRGB(18, 22, 34)
 Main.BorderSizePixel  = 0
 Main.Active           = true
-Main.Draggable        = not isMobile
+Main.Draggable        = false
 Main.ClipsDescendants = true
 Main.ZIndex           = 1
 Main.Parent           = ScreenGui
@@ -368,6 +409,7 @@ MinBtn.MouseButton1Click:Connect(function()
 end)
 
 MiniIcon.MouseButton1Click:Connect(function()
+    if iconDragMoved > 8 then return end
     TweenService:Create(MiniIcon, TweenInfo.new(0.2,Enum.EasingStyle.Quart,Enum.EasingDirection.In),
         {Size = UDim2.new(0,0,0,0)}):Play()
     task.wait(0.2)
@@ -375,8 +417,38 @@ MiniIcon.MouseButton1Click:Connect(function()
     Main.Visible     = true
     Main.Size        = UDim2.new(0,0,0,0)
     TweenService:Create(Main, TweenInfo.new(0.45,Enum.EasingStyle.Back),
-        {Size = isMobile and UDim2.new(0.95,0,0.85,0) or UDim2.new(0,460,0,680)}):Play()
+        {Size = MainSize}):Play()
 end)
+
+-- ════════════════════════════════════════════
+-- TITLE BAR DRAG (diklam layar, mouse + touch)
+-- ════════════════════════════════════════════
+local titleBlockInput = nil
+MinBtn.InputBegan:Connect(function(input) titleBlockInput = input end)
+CloseBtn.InputBegan:Connect(function(input) titleBlockInput = input end)
+do
+    local dragging, dStart, sPos = false, nil, nil
+    TitleBar.InputBegan:Connect(function(input)
+        if input == titleBlockInput then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true; dStart = input.Position; sPos = Main.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if not dragging then return end
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            local delta = input.Position - dStart
+            local vp = getVpSize()
+            local absX = sPos.X.Scale * vp.X + sPos.X.Offset + delta.X
+            local absY = sPos.Y.Scale * vp.Y + sPos.Y.Offset + delta.Y
+            local nx, ny = clampToVp(absX, absY, Main.AbsoluteSize.X, Main.AbsoluteSize.Y)
+            Main.Position = UDim2.new(0, nx, 0, ny)
+        end
+    end)
+end
 
 -- ════════════════════════════════════════════
 -- TAB SYSTEM
