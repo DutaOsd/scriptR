@@ -34,6 +34,7 @@ local SCRIPTS = {
     { file = "noclip.lua",        title = "NoClip",          desc = "NoClip · shortcut K",                       stop = { "GrokNoClip" }, beta = true },
     { file = "path.lua",          title = "Path Movement",   desc = "Path visualizer + record/replay obby",      stop = { "PathMovementGUI", "PathVisuals" }, beta = true },
     { file = "rejoin.lua",        title = "Rejoin",          desc = "Auto rejoin server · hotkey R",             stop = { "RejoinGUI" } },
+    { file = "speedometer.lua",   title = "Speedometer",     desc = "Kecepatan gerak avatar di atas kepala",     stop = { "SpeedometerToggle" } },
     { file = "wasd.lua",          title = "WASD Mobile",     desc = "Tombol WASD virtual untuk mobile",          stop = { "WASD_X" }, beta = true },
 }
 
