@@ -168,29 +168,8 @@ Panel.ZIndex = 200
 CreateCorner(Panel, 14)
 CreateStroke(Panel, C.border, 1.5, 0.3)
 
--- Panel Drag
-local pDrag, pDragStart, pStartPos
-Panel.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
-        pDrag = true
-        pDragStart = input.Position
-        pStartPos = Panel.Position
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                pDrag = false
-            end
-        end)
-    end
-end)
-UIS.InputChanged:Connect(function(input)
-    if pDrag and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
-        local d = input.Position - pDragStart
-        Panel.Position = UDim2.new(
-            pStartPos.X.Scale, pStartPos.X.Offset + d.X,
-            pStartPos.Y.Scale, pStartPos.Y.Offset + d.Y
-        )
-    end
-end)
+-- Drag panel dipindah ke Title Bar (lihat bagian TITLE BAR di bawah)
+-- supaya geser slider tidak ikut menggeser panel.
 
 -- ════════════════════════════════════════════════════════
 -- TITLE BAR
@@ -257,6 +236,39 @@ closeLbl.ZIndex = 203
 
 closeBtn.MouseEnter:Connect(function() Tween(closeBtn, 0.15, {BackgroundTransparency = 0.3}) end)
 closeBtn.MouseLeave:Connect(function() Tween(closeBtn, 0.15, {BackgroundTransparency = 0.7}) end)
+
+-- ════════════════════════════════════════════════════════
+-- PANEL DRAG — hanya lewat Title Bar (bagian atas panel)
+-- Input di area slider/preset/content TIDAK menggeser panel.
+-- Input di close button juga diabaikan agar tidak drag.
+-- ════════════════════════════════════════════════════════
+local pDrag, pDragStart, pStartPos
+local blockDragInput = nil
+closeBtn.InputBegan:Connect(function(input)
+    blockDragInput = input
+end)
+TitleBar.InputBegan:Connect(function(input)
+    if input == blockDragInput then return end
+    if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+        pDrag = true
+        pDragStart = input.Position
+        pStartPos = Panel.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                pDrag = false
+            end
+        end)
+    end
+end)
+UIS.InputChanged:Connect(function(input)
+    if pDrag and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
+        local d = input.Position - pDragStart
+        Panel.Position = UDim2.new(
+            pStartPos.X.Scale, pStartPos.X.Offset + d.X,
+            pStartPos.Y.Scale, pStartPos.Y.Offset + d.Y
+        )
+    end
+end)
 
 -- ════════════════════════════════════════════════════════
 -- CONTENT
