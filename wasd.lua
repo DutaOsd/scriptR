@@ -10,6 +10,17 @@ task.wait(2)
 
 local mv = {W=false, A=false, S=false, D=false}
 
+-- Stop-flag kooperatif: diset loader.lua saat tombol "Tutup" ditekan
+local function isStopped()
+    local ok, env = pcall(function()
+        if type(getgenv) == "function" then return getgenv() end
+        return _G
+    end)
+    if not ok or type(env) ~= "table" then return false end
+    local t = env.ScriptR_Stop
+    return type(t) == "table" and t["wasd.lua"] == true
+end
+
 -- Fungsi buat GUI
 local function createGUI()
     -- Hapus yang lama kalau ada
@@ -75,9 +86,10 @@ end
 local gui = createGUI()
 print("GUI dibuat!")
 
--- Loop: kalau GUI dihapus game, buat lagi
+-- Loop: kalau GUI dihapus game, buat lagi (berhenti kalau loader stop-flag aktif)
 task.spawn(function()
     while task.wait(1) do
+        if isStopped() then break end
         if not gui or not gui.Parent then
             gui = createGUI()
             print("GUI dibuat ulang!")
@@ -87,6 +99,7 @@ end)
 
 -- Loop gerak
 rs.RenderStepped:Connect(function()
+    if isStopped() then return end
     local c = p.Character
     if not c then return end
     local h = c:FindFirstChildOfClass("Humanoid")

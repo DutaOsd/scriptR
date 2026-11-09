@@ -18,19 +18,23 @@
 local BASE_URL = "https://raw.githubusercontent.com/DutaOsd/scriptR/arena/e872378e-scriptr/"
 
 -- Daftar script yang tersedia (nama file -> judul & deskripsi di menu)
+-- beta = true  → ditandai BETA (masih bermasalah)
+-- stop = {...} → instance (di CoreGui/PlayerGui/workspace/Lighting) yang
+--                dihancurkan saat tombol "Tutup" di tab Running ditekan.
+--                Nama harus sama persis dengan yang dibuat script.
 local SCRIPTS = {
-    { file = "BoatyardDelta.lua", title = "Boatyard Delta",  desc = "Shop Item Finder Pro · auto-buy, anti-AFK" },
-    { file = "K2.lua",            title = "Solara Hub V5",   desc = "Full bright, zoom, HP regen, fly, ESP" },
-    { file = "ObbyHelperPro.lua", title = "Obby Helper Pro", desc = "Auto-complete obby v3.2" },
-    { file = "antartika.lua",     title = "Antartika Vision",desc = "Fog, cuaca, waktu, night vision, speed" },
-    { file = "bag.lua",           title = "Custom Hotbar",   desc = "Hotbar 10 slot custom" },
-    { file = "daun.lua",          title = "Leaf Simulator",  desc = "Configurator V2 · mobile + PC" },
-    { file = "fly.lua",           title = "Universal Fly",   desc = "Fly V2 · mobile joystick + PC WASD" },
-    { file = "jump.lua",          title = "Jump Settings",   desc = "Atur ukuran & posisi tombol jump (mobile)" },
-    { file = "noclip.lua",        title = "NoClip",          desc = "NoClip · shortcut K" },
-    { file = "path.lua",          title = "Path Movement",   desc = "Path visualizer + record/replay obby" },
-    { file = "rejoin.lua",        title = "Rejoin",          desc = "Auto rejoin server · hotkey R" },
-    { file = "wasd.lua",          title = "WASD Mobile",     desc = "Tombol WASD virtual untuk mobile" },
+    { file = "BoatyardDelta.lua", title = "Boatyard Delta",  desc = "Shop Item Finder Pro · auto-buy, anti-AFK", stop = { "ShopFinderGUI_Clean" } },
+    { file = "K2.lua",            title = "Solara Hub V5",   desc = "Full bright, zoom, HP regen, fly, ESP",     stop = { "SolaraHubV5", "SolaraESPv5", "SolaraESPParts" } },
+    { file = "ObbyHelperPro.lua", title = "Obby Helper Pro", desc = "Auto-complete obby v3.2",                   stop = { "ObbyHelperGUI" } },
+    { file = "antartika.lua",     title = "Antartika Vision",desc = "Fog, cuaca, waktu, night vision, speed",    stop = { "VisionControlGUI", "NightVisionCC" } },
+    { file = "bag.lua",           title = "Custom Hotbar",   desc = "Hotbar 10 slot custom",                     stop = { "CustomHotbar10" }, beta = true },
+    { file = "daun.lua",          title = "Leaf Simulator",  desc = "Configurator V2 · mobile + PC",             stop = { "LeafSimV2" }, beta = true },
+    { file = "fly.lua",           title = "Universal Fly",   desc = "Fly V2 · mobile joystick + PC WASD",        stop = { "FlyGuiV2" } },
+    { file = "jump.lua",          title = "Jump Settings",   desc = "Atur ukuran & posisi tombol jump (mobile)", stop = { "JumpSettingsGUI" } },
+    { file = "noclip.lua",        title = "NoClip",          desc = "NoClip · shortcut K",                       stop = { "GrokNoClip" }, beta = true },
+    { file = "path.lua",          title = "Path Movement",   desc = "Path visualizer + record/replay obby",      stop = { "PathMovementGUI", "PathVisuals" }, beta = true },
+    { file = "rejoin.lua",        title = "Rejoin",          desc = "Auto rejoin server · hotkey R",             stop = { "RejoinGUI" } },
+    { file = "wasd.lua",          title = "WASD Mobile",     desc = "Tombol WASD virtual untuk mobile",          stop = { "WASD_X" }, beta = true },
 }
 
 -- ════════════════════════════════════════════════════════
@@ -65,6 +69,58 @@ local function clampToViewport(absX, absY, objW, objH)
     local maxX = math.max(0, vp.X - objW)
     local maxY = math.max(0, vp.Y - objH)
     return math.clamp(absX, 0, maxX), math.clamp(absY, 0, maxY)
+end
+
+-- ════════════════════════════════════════════════════════
+-- STOP-FLAG + CLEANUP HELPERS
+-- Flag disimpan di getgenv() (fallback _G) dengan key = nama file,
+-- dibaca oleh script yang punya loop (wasd, jump, ...).
+-- ════════════════════════════════════════════════════════
+local running = {}             -- daftar record script yang sedang berjalan
+local refreshRunningTab        -- forward declaration (didefinisikan di bawah)
+
+local function setStopFlag(fileName, value)
+    pcall(function()
+        local env = (type(getgenv) == "function" and getgenv()) or _G
+        env.ScriptR_Stop = env.ScriptR_Stop or {}
+        env.ScriptR_Stop[fileName] = value and true or nil
+        _G.ScriptR_Stop = env.ScriptR_Stop
+    end)
+end
+
+local function destroyEverywhere(name)
+    local parents = {}
+    pcall(function() table.insert(parents, game:GetService("CoreGui")) end)
+    pcall(function() table.insert(parents, LocalPlayer:FindFirstChild("PlayerGui")) end)
+    pcall(function() table.insert(parents, workspace) end)
+    pcall(function() table.insert(parents, game:GetService("Lighting")) end)
+    for _, parent in ipairs(parents) do
+        if parent then
+            pcall(function()
+                local inst = parent:FindFirstChild(name)
+                if inst then inst:Destroy() end
+            end)
+        end
+    end
+end
+
+local function findRunning(fileName)
+    for _, rec in ipairs(running) do
+        if rec.entry.file == fileName then return rec end
+    end
+    return nil
+end
+
+local function stopScript(rec)
+    setStopFlag(rec.entry.file, true)
+    for _, name in ipairs(rec.entry.stop or {}) do
+        destroyEverywhere(name)
+    end
+    for i, r in ipairs(running) do
+        if r == rec then table.remove(running, i) break end
+    end
+    if refreshRunningTab then refreshRunningTab() end
+    return true
 end
 
 -- ════════════════════════════════════════════════════════
@@ -107,6 +163,17 @@ local function httpGet(url)
 end
 
 local function runScript(entry, statusLabel)
+    -- Cegah double-run: script yang sama tidak bisa dijalankan 2x
+    if findRunning(entry.file) then
+        statusLabel.Text = "⚠️ " .. entry.title .. " sudah berjalan — tutup dulu lewat tab Running"
+        statusLabel.TextColor3 = Color3.fromRGB(255, 200, 80)
+        notify("ScriptR Loader", entry.title .. " sudah berjalan")
+        return
+    end
+
+    -- Reset stop-flag supaya loop lama bisa jalan lagi
+    setStopFlag(entry.file, false)
+
     local url = BASE_URL .. entry.file
     statusLabel.Text = "⏳ Fetching " .. entry.file .. " ..."
     statusLabel.TextColor3 = Color3.fromRGB(255, 200, 80)
@@ -129,6 +196,8 @@ local function runScript(entry, statusLabel)
 
     local ok, runErr = pcall(fn)
     if ok then
+        table.insert(running, { entry = entry, start = os.clock(), timeLabel = nil })
+        if refreshRunningTab then refreshRunningTab() end
         statusLabel.Text = "✅ " .. entry.title .. " berjalan"
         statusLabel.TextColor3 = Color3.fromRGB(90, 255, 150)
         notify("ScriptR Loader", entry.title .. " berhasil dijalankan")
@@ -237,10 +306,50 @@ end
 local minimizeBtn = makeHeaderButton("–", Color3.fromRGB(60, 60, 85), -84)
 local closeBtn    = makeHeaderButton("×", Color3.fromRGB(200, 70, 70), -44)
 
+-- ===== Tab bar (Scripts / Running) =====
+local TAB_INACTIVE = Color3.fromRGB(38, 36, 58)
+local TAB_ACTIVE   = Color3.fromRGB(120, 90, 255)
+
+local tabBar = Instance.new("Frame")
+tabBar.Name = "TabBar"
+tabBar.Size = UDim2.new(1, 0, 0, 38)
+tabBar.Position = UDim2.new(0, 0, 0, 46)
+tabBar.BackgroundColor3 = Color3.fromRGB(22, 20, 34)
+tabBar.BorderSizePixel = 0
+tabBar.Parent = main
+
+local function makeTabButton(text, xScale, xOffset)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0.5, -6, 1, -8)
+    b.Position = UDim2.new(xScale, xOffset, 0, 4)
+    b.BackgroundColor3 = TAB_INACTIVE
+    b.Text = text
+    b.TextColor3 = Color3.fromRGB(220, 220, 235)
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 12
+    b.AutoButtonColor = false
+    b.Parent = tabBar
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, 8)
+    c.Parent = b
+    return b
+end
+
+local tabScriptsBtn = makeTabButton("📦  Scripts", 0, 4)
+local tabRunningBtn = makeTabButton("📡  Running (0)", 0.5, 2)
+
+local function styleTab(active)
+    local on, off = TAB_ACTIVE, TAB_INACTIVE
+    tabScriptsBtn.BackgroundColor3 = active == "scripts" and on or off
+    tabRunningBtn.BackgroundColor3 = active == "running" and on or off
+    tabScriptsBtn.TextColor3 = active == "scripts" and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(190, 190, 215)
+    tabRunningBtn.TextColor3 = active == "running" and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(190, 190, 215)
+end
+
 -- ===== Status bar =====
 local status = Instance.new("TextLabel")
 status.Size = UDim2.new(1, -20, 0, 22)
-status.Position = UDim2.new(0, 10, 0, 52)
+status.Position = UDim2.new(0, 10, 0, 88)
 status.BackgroundTransparency = 1
 status.Text = "Siap. Klik salah satu script di bawah."
 status.TextColor3 = Color3.fromRGB(170, 170, 200)
@@ -250,11 +359,11 @@ status.TextXAlignment = Enum.TextXAlignment.Left
 status.TextTruncate = Enum.TextTruncate.AtEnd
 status.Parent = main
 
--- ===== Scroll list =====
+-- ===== Scroll list (tab Scripts) =====
 local scroll = Instance.new("ScrollingFrame")
 scroll.Name = "List"
-scroll.Size = UDim2.new(1, -20, 1, -96)
-scroll.Position = UDim2.new(0, 10, 0, 78)
+scroll.Size = UDim2.new(1, -20, 1, -128)
+scroll.Position = UDim2.new(0, 10, 0, 114)
 scroll.BackgroundTransparency = 1
 scroll.BorderSizePixel = 0
 scroll.ScrollBarThickness = 4
@@ -265,6 +374,36 @@ scroll.Parent = main
 local listLayout = Instance.new("UIListLayout")
 listLayout.Padding = UDim.new(0, 8)
 listLayout.Parent = scroll
+
+-- ===== Tab Running: daftar script yang sedang berjalan =====
+local runScroll = Instance.new("ScrollingFrame")
+runScroll.Name = "RunningList"
+runScroll.Size = UDim2.new(1, -20, 1, -128)
+runScroll.Position = UDim2.new(0, 10, 0, 114)
+runScroll.BackgroundTransparency = 1
+runScroll.BorderSizePixel = 0
+runScroll.ScrollBarThickness = 4
+runScroll.ScrollBarImageColor3 = Color3.fromRGB(255, 120, 120)
+runScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+runScroll.Visible = false
+runScroll.Parent = main
+
+local runLayout = Instance.new("UIListLayout")
+runLayout.Padding = UDim.new(0, 8)
+runLayout.Parent = runScroll
+
+local runEmpty = Instance.new("TextLabel")
+runEmpty.Name = "RunEmpty"
+runEmpty.Size = UDim2.new(1, -40, 0, 120)
+runEmpty.Position = UDim2.new(0, 20, 0.32, 0)
+runEmpty.BackgroundTransparency = 1
+runEmpty.Text = "Belum ada script yang berjalan.\n\nScript yang kamu jalankan akan muncul di sini\nbeserta tombol Tutup."
+runEmpty.TextColor3 = Color3.fromRGB(140, 140, 170)
+runEmpty.Font = Enum.Font.Gotham
+runEmpty.TextSize = 12
+runEmpty.TextWrapped = true
+runEmpty.Visible = false
+runEmpty.Parent = main
 
 local function makeScriptButton(entry)
     local btn = Instance.new("TextButton")
@@ -285,7 +424,7 @@ local function makeScriptButton(entry)
     stroke.Parent = btn
 
     local t = Instance.new("TextLabel")
-    t.Size = UDim2.new(1, -20, 0, 22)
+    t.Size = UDim2.new(1, entry.beta and -80 or -20, 0, 22)
     t.Position = UDim2.new(0, 12, 0, 4)
     t.BackgroundTransparency = 1
     t.Text = entry.title
@@ -294,6 +433,21 @@ local function makeScriptButton(entry)
     t.TextSize = 14
     t.TextXAlignment = Enum.TextXAlignment.Left
     t.Parent = btn
+
+    if entry.beta then
+        local badge = Instance.new("TextLabel")
+        badge.Size = UDim2.new(0, 46, 0, 17)
+        badge.Position = UDim2.new(1, -56, 0, 6)
+        badge.BackgroundColor3 = Color3.fromRGB(255, 170, 60)
+        badge.Text = "BETA"
+        badge.TextColor3 = Color3.fromRGB(70, 40, 0)
+        badge.Font = Enum.Font.GothamBold
+        badge.TextSize = 10
+        badge.Parent = btn
+        local bc = Instance.new("UICorner")
+        bc.CornerRadius = UDim.new(0, 6)
+        bc.Parent = badge
+    end
 
     local d = Instance.new("TextLabel")
     d.Size = UDim2.new(1, -20, 0, 16)
@@ -322,6 +476,117 @@ end
 for _, entry in ipairs(SCRIPTS) do
     makeScriptButton(entry)
 end
+
+-- ════════════════════════════════════════════
+-- RUNNING TAB (monitoring + tombol tutup)
+-- ════════════════════════════════════════════
+local currentTab = "scripts"
+
+local function formatElapsed(sec)
+    sec = math.max(0, math.floor(sec))
+    return string.format("%02d:%02d", math.floor(sec / 60), sec % 60)
+end
+
+local function setTab(name)
+    currentTab = name
+    scroll.Visible = (name == "scripts")
+    runScroll.Visible = (name == "running")
+    runEmpty.Visible = (name == "running") and (#running == 0)
+    styleTab(name)
+end
+
+tabScriptsBtn.MouseButton1Click:Connect(function() setTab("scripts") end)
+tabRunningBtn.MouseButton1Click:Connect(function() setTab("running") end)
+
+refreshRunningTab = function()
+    for _, child in ipairs(runScroll:GetChildren()) do
+        if child:IsA("Frame") then child:Destroy() end
+    end
+
+    tabRunningBtn.Text = string.format("📡  Running (%d)", #running)
+
+    for _, rec in ipairs(running) do
+        local item = Instance.new("Frame")
+        item.Name = "Running_" .. rec.entry.file
+        item.Size = UDim2.new(1, -6, 0, 58)
+        item.BackgroundColor3 = Color3.fromRGB(32, 30, 50)
+        item.BorderSizePixel = 0
+        item.Parent = runScroll
+
+        local ic = Instance.new("UICorner")
+        ic.CornerRadius = UDim.new(0, 10)
+        ic.Parent = item
+
+        local ist = Instance.new("UIStroke")
+        ist.Color = Color3.fromRGB(120, 60, 60)
+        ist.Thickness = 1
+        ist.Transparency = 0.3
+        ist.Parent = item
+
+        local t = Instance.new("TextLabel")
+        t.Size = UDim2.new(1, -96, 0, 22)
+        t.Position = UDim2.new(0, 12, 0, 4)
+        t.BackgroundTransparency = 1
+        t.Text = rec.entry.title .. (rec.entry.beta and "  ⚠ BETA" or "")
+        t.TextColor3 = Color3.fromRGB(255, 255, 255)
+        t.Font = Enum.Font.GothamBold
+        t.TextSize = 13
+        t.TextXAlignment = Enum.TextXAlignment.Left
+        t.TextTruncate = Enum.TextTruncate.AtEnd
+        t.Parent = item
+
+        local timeLbl = Instance.new("TextLabel")
+        timeLbl.Size = UDim2.new(1, -96, 0, 16)
+        timeLbl.Position = UDim2.new(0, 12, 0, 28)
+        timeLbl.BackgroundTransparency = 1
+        timeLbl.Text = "Berjalan · " .. formatElapsed(os.clock() - rec.start)
+        timeLbl.TextColor3 = Color3.fromRGB(120, 255, 160)
+        timeLbl.Font = Enum.Font.Gotham
+        timeLbl.TextSize = 11
+        timeLbl.TextXAlignment = Enum.TextXAlignment.Left
+        timeLbl.Parent = item
+        rec.timeLabel = timeLbl
+
+        local stopBtn = Instance.new("TextButton")
+        stopBtn.Name = "StopBtn"
+        stopBtn.Size = UDim2.new(0, 68, 0, 30)
+        stopBtn.Position = UDim2.new(1, -78, 0.5, -15)
+        stopBtn.BackgroundColor3 = Color3.fromRGB(200, 70, 70)
+        stopBtn.Text = "Tutup"
+        stopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        stopBtn.Font = Enum.Font.GothamBold
+        stopBtn.TextSize = 12
+        stopBtn.AutoButtonColor = true
+        stopBtn.Parent = item
+        local sc = Instance.new("UICorner")
+        sc.CornerRadius = UDim.new(0, 8)
+        sc.Parent = stopBtn
+
+        stopBtn.MouseButton1Click:Connect(function()
+            stopScript(rec)
+            status.Text = "⏹ " .. rec.entry.title .. " ditutup"
+            status.TextColor3 = Color3.fromRGB(255, 200, 80)
+            notify("ScriptR Loader", rec.entry.title .. " ditutup")
+        end)
+    end
+
+    runScroll.CanvasSize = UDim2.new(0, 0, 0, #running * 66 + 8)
+    runEmpty.Visible = (currentTab == "running") and (#running == 0)
+end
+
+-- Timer: update label "Berjalan · mm:ss" tiap detik
+task.spawn(function()
+    while sg.Parent do
+        for _, rec in ipairs(running) do
+            if rec.timeLabel and rec.timeLabel.Parent then
+                rec.timeLabel.Text = "Berjalan · " .. formatElapsed(os.clock() - rec.start)
+            end
+        end
+        task.wait(1)
+    end
+end)
+
+styleTab("scripts")
 
 -- ===== Floating minimize icon (muncul saat minimize) =====
 local MIN_ICON_SIZE = 54

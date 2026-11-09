@@ -116,9 +116,10 @@ local function ApplyJump()
 end
 
 task.spawn(function()
-    while not GetJumpButton() do task.wait(0.5) end
+    while not isStopped() and not GetJumpButton() do task.wait(0.5) end
+    if isStopped() then return end
     ApplyJump()
-    while task.wait(3) do ApplyJump() end
+    while not isStopped() do task.wait(3) ApplyJump() end
 end)
 
 -- ════════════════════════════════════════════════════════
