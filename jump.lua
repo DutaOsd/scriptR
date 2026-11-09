@@ -6,6 +6,7 @@
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 local LP = Players.LocalPlayer
 
 -- ════════════════════════════════════════════════════════
@@ -37,12 +38,16 @@ local function clampAbs(x, y, w, h)
     return math.clamp(x, 0, math.max(0, vp.X - w)), math.clamp(y, 0, math.max(0, vp.Y - h))
 end
 local PANEL_W = math.min(280, vpSize().X - 16)
-local PANEL_H_MAX = math.min(370, vpSize().Y - 32)
+local PANEL_H_MAX = math.min(460, vpSize().Y - 32)
 
 local Values = {
     Size = 120,
     FromRight = 40,
     FromBottom = 60,
+    -- Shift Lock (tombol floating + mode)
+    ShiftLock = { Size = 88, FromRight = 40, FromBottom = 210 },
+    ShowShiftLockBtn = true,
+    ShiftLockOn = false,
 }
 
 -- ════════════════════════════════════════════════════════
@@ -170,6 +175,77 @@ UIS.InputChanged:Connect(function(input)
 end)
 
 -- ════════════════════════════════════════════════════════
+-- SHIFT LOCK (mobile) — karakter menghadap arah kamera
+-- ════════════════════════════════════════════════════════
+local shiftConnection = nil
+
+local SLLockBtn = Instance.new("TextButton", GUI)
+SLLockBtn.Name = "ShiftLockBtn"
+SLLockBtn.Size = UDim2.new(0, Values.ShiftLock.Size, 0, Values.ShiftLock.Size)
+SLLockBtn.Position = UDim2.new(1, -(Values.ShiftLock.FromRight + Values.ShiftLock.Size), 1, -(Values.ShiftLock.FromBottom + Values.ShiftLock.Size))
+SLLockBtn.BackgroundColor3 = C.bg2
+SLLockBtn.Text = "🔒"
+SLLockBtn.TextColor3 = C.white
+SLLockBtn.Font = Enum.Font.GothamBold
+SLLockBtn.TextSize = math.floor(Values.ShiftLock.Size * 0.5)
+SLLockBtn.AutoButtonColor = false
+SLLockBtn.ZIndex = 300
+SLLockBtn.Visible = Values.ShowShiftLockBtn
+CreateCorner(SLLockBtn, 18)
+CreateStroke(SLLockBtn, C.border, 2, 0.2)
+
+local function ApplySLBtn()
+    local sl = Values.ShiftLock
+    SLLockBtn.Size = UDim2.new(0, sl.Size, 0, sl.Size)
+    SLLockBtn.Position = UDim2.new(1, -(sl.FromRight + sl.Size), 1, -(sl.FromBottom + sl.Size))
+    SLLockBtn.TextSize = math.max(16, math.floor(sl.Size * 0.5))
+    SLLockBtn.Visible = Values.ShowShiftLockBtn
+end
+
+-- Forward declaration: di-assign nanti di tab Shift Lock
+local RefreshSLVisuals = function() end
+
+local function SetAutoRotate(state)
+    local char = LP.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if hum then hum.AutoRotate = not state end
+end
+
+local function SetShiftLock(on)
+    Values.ShiftLockOn = on == true
+    if shiftConnection then
+        shiftConnection:Disconnect()
+        shiftConnection = nil
+    end
+    SetAutoRotate(Values.ShiftLockOn)
+    if Values.ShiftLockOn then
+        shiftConnection = RunService.RenderStepped:Connect(function()
+            local camera = workspace.CurrentCamera
+            local char = LP.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if not (camera and hrp) then return end
+            local look = camera.CFrame.LookVector
+            local flat = Vector3.new(look.X, 0, look.Z)
+            if flat.Magnitude < 0.05 then return end
+            hrp.CFrame = CFrame.lookAt(hrp.Position, hrp.Position + flat)
+        end)
+    end
+    RefreshSLVisuals()
+end
+
+SLLockBtn.MouseButton1Click:Connect(function()
+    SetShiftLock(not Values.ShiftLockOn)
+end)
+
+LP.CharacterAdded:Connect(function()
+    task.wait(0.5)
+    if Values.ShiftLockOn then
+        SetAutoRotate(true)
+        SetShiftLock(true)
+    end
+end)
+
+-- ════════════════════════════════════════════════════════
 -- SETTINGS PANEL
 -- ════════════════════════════════════════════════════════
 local panelOpen = false
@@ -288,17 +364,80 @@ UIS.InputChanged:Connect(function(input)
 end)
 
 -- ════════════════════════════════════════════════════════
--- CONTENT
+-- TAB BAR (Jump / Shift Lock)
+-- ════════════════════════════════════════════════════════
+local TabBar = Instance.new("Frame", Panel)
+TabBar.Size = UDim2.new(1, 0, 0, 34)
+TabBar.Position = UDim2.new(0, 0, 0, 46)
+TabBar.BackgroundColor3 = C.bg2
+TabBar.BorderSizePixel = 0
+TabBar.ZIndex = 201
+
+local tabJumpBtn = Instance.new("TextButton", TabBar)
+tabJumpBtn.Name = "TabJump"
+tabJumpBtn.Size = UDim2.new(0.5, -6, 0, 26)
+tabJumpBtn.Position = UDim2.new(0, 4, 0, 4)
+tabJumpBtn.BackgroundColor3 = C.accent
+tabJumpBtn.Text = "🪂  Jump"
+tabJumpBtn.TextColor3 = C.white
+tabJumpBtn.Font = Enum.Font.GothamBold
+tabJumpBtn.TextSize = 12
+tabJumpBtn.AutoButtonColor = false
+tabJumpBtn.ZIndex = 202
+CreateCorner(tabJumpBtn, 8)
+
+local tabShiftBtn = Instance.new("TextButton", TabBar)
+tabShiftBtn.Name = "TabShiftLock"
+tabShiftBtn.Size = UDim2.new(0.5, -6, 0, 26)
+tabShiftBtn.Position = UDim2.new(0.5, 2, 0, 4)
+tabShiftBtn.BackgroundColor3 = C.bg3
+tabShiftBtn.Text = "🔒  Shift Lock"
+tabShiftBtn.TextColor3 = C.text2
+tabShiftBtn.Font = Enum.Font.GothamBold
+tabShiftBtn.TextSize = 12
+tabShiftBtn.AutoButtonColor = false
+tabShiftBtn.ZIndex = 202
+CreateCorner(tabShiftBtn, 8)
+
+-- ════════════════════════════════════════════════════════
+-- CONTENT (tab Jump)
 -- ════════════════════════════════════════════════════════
 local Content = Instance.new("Frame", Panel)
-Content.Size = UDim2.new(1, -20, 1, -54)
-Content.Position = UDim2.new(0, 10, 0, 50)
+Content.Size = UDim2.new(1, -20, 1, -88)
+Content.Position = UDim2.new(0, 10, 0, 84)
 Content.BackgroundTransparency = 1
 Content.ZIndex = 201
 
 local Layout = Instance.new("UIListLayout", Content)
 Layout.Padding = UDim.new(0, 8)
 Layout.SortOrder = Enum.SortOrder.LayoutOrder
+
+-- ════════════════════════════════════════════════════════
+-- CONTENT (tab Shift Lock)
+-- ════════════════════════════════════════════════════════
+local ContentShift = Instance.new("Frame", Panel)
+ContentShift.Size = UDim2.new(1, -20, 1, -88)
+ContentShift.Position = UDim2.new(0, 10, 0, 84)
+ContentShift.BackgroundTransparency = 1
+ContentShift.ZIndex = 201
+ContentShift.Visible = false
+
+local LayoutShift = Instance.new("UIListLayout", ContentShift)
+LayoutShift.Padding = UDim.new(0, 8)
+LayoutShift.SortOrder = Enum.SortOrder.LayoutOrder
+
+local function switchTab(tab)
+    local isJump = tab == "jump"
+    Content.Visible = isJump
+    ContentShift.Visible = not isJump
+    tabJumpBtn.BackgroundColor3 = isJump and C.accent or C.bg3
+    tabJumpBtn.TextColor3 = isJump and C.white or C.text2
+    tabShiftBtn.BackgroundColor3 = (not isJump) and C.accent or C.bg3
+    tabShiftBtn.TextColor3 = (not isJump) and C.white or C.text2
+end
+
+tabJumpBtn.MouseButton1Click:Connect(function() switchTab("jump") end)
+tabShiftBtn.MouseButton1Click:Connect(function() switchTab("shift") end)
 
 -- ════════════════════════════════════════════════════════
 -- SLIDER BUILDER
@@ -712,6 +851,148 @@ table.insert(sliderRefs, {
 
 CreatePresets(Content)
 CreateResetButton(Content)
+
+-- ════════════════════════════════════════════════════════
+-- BUILD SHIFT LOCK TAB
+-- ════════════════════════════════════════════════════════
+-- Status toggle besar
+local slStatusBtn = Instance.new("TextButton", ContentShift)
+slStatusBtn.Size = UDim2.new(1, 0, 0, 52)
+slStatusBtn.BackgroundColor3 = C.bg3
+slStatusBtn.Text = ""
+slStatusBtn.AutoButtonColor = false
+slStatusBtn.ZIndex = 202
+CreateCorner(slStatusBtn, 10)
+CreateStroke(slStatusBtn, C.border, 1, 0.5)
+
+local slStatusIcon = Instance.new("TextLabel", slStatusBtn)
+slStatusIcon.Size = UDim2.new(0, 32, 1, 0)
+slStatusIcon.Position = UDim2.new(0, 10, 0, 0)
+slStatusIcon.BackgroundTransparency = 1
+slStatusIcon.Text = "🔓"
+slStatusIcon.TextSize = 20
+slStatusIcon.ZIndex = 203
+
+local slStatusText = Instance.new("TextLabel", slStatusBtn)
+slStatusText.Size = UDim2.new(1, -54, 0, 22)
+slStatusText.Position = UDim2.new(0, 44, 0, 4)
+slStatusText.BackgroundTransparency = 1
+slStatusText.Text = "Shift Lock: OFF"
+slStatusText.TextColor3 = C.text2
+slStatusText.Font = Enum.Font.GothamBold
+slStatusText.TextSize = 14
+slStatusText.TextXAlignment = Enum.TextXAlignment.Left
+slStatusText.ZIndex = 203
+
+local slStatusHint = Instance.new("TextLabel", slStatusBtn)
+slStatusHint.Size = UDim2.new(1, -54, 0, 14)
+slStatusHint.Position = UDim2.new(0, 44, 0, 27)
+slStatusHint.BackgroundTransparency = 1
+slStatusHint.Text = "Karakter selalu menghadap arah kamera"
+slStatusHint.TextColor3 = C.text3
+slStatusHint.Font = Enum.Font.Gotham
+slStatusHint.TextSize = 10
+slStatusHint.TextXAlignment = Enum.TextXAlignment.Left
+slStatusHint.ZIndex = 203
+
+slStatusBtn.MouseButton1Click:Connect(function()
+    SetShiftLock(not Values.ShiftLockOn)
+end)
+
+-- Row: tampilkan / sembunyikan tombol floating
+local slShowFrame = Instance.new("Frame", ContentShift)
+slShowFrame.Size = UDim2.new(1, 0, 0, 44)
+slShowFrame.BackgroundColor3 = C.bg2
+slShowFrame.ZIndex = 202
+CreateCorner(slShowFrame, 10)
+CreateStroke(slShowFrame, C.border, 1, 0.5)
+
+local slShowLbl = Instance.new("TextLabel", slShowFrame)
+slShowLbl.Size = UDim2.new(1, -80, 1, 0)
+slShowLbl.Position = UDim2.new(0, 12, 0, 0)
+slShowLbl.BackgroundTransparency = 1
+slShowLbl.Text = "Tampilkan Tombol di Layar"
+slShowLbl.TextColor3 = C.text
+slShowLbl.Font = Enum.Font.GothamBold
+slShowLbl.TextSize = 11
+slShowLbl.TextXAlignment = Enum.TextXAlignment.Left
+slShowLbl.ZIndex = 203
+
+local slPill = Instance.new("TextButton", slShowFrame)
+slPill.Size = UDim2.new(0, 52, 0, 24)
+slPill.Position = UDim2.new(1, -62, 0.5, -12)
+slPill.BackgroundColor3 = C.green
+slPill.Text = "ON"
+slPill.TextColor3 = Color3.fromRGB(20, 40, 25)
+slPill.Font = Enum.Font.GothamBold
+slPill.TextSize = 11
+slPill.AutoButtonColor = false
+slPill.ZIndex = 203
+CreateCorner(slPill, 12)
+
+local function RefreshPill()
+    if Values.ShowShiftLockBtn then
+        slPill.BackgroundColor3 = C.green
+        slPill.Text = "ON"
+        slPill.TextColor3 = Color3.fromRGB(20, 40, 25)
+    else
+        slPill.BackgroundColor3 = C.bg4
+        slPill.Text = "OFF"
+        slPill.TextColor3 = C.text2
+    end
+end
+
+slPill.MouseButton1Click:Connect(function()
+    Values.ShowShiftLockBtn = not Values.ShowShiftLockBtn
+    ApplySLBtn()
+    RefreshPill()
+end)
+
+-- Slider ukuran & posisi (sama seperti jump button)
+CreateSlider(ContentShift, "Button Size", "📏", 40, 220, Values.ShiftLock.Size, "px", function(val)
+    Values.ShiftLock.Size = val
+    ApplySLBtn()
+end)
+CreateSlider(ContentShift, "From Right", "➡️", 0, 300, Values.ShiftLock.FromRight, "px", function(val)
+    Values.ShiftLock.FromRight = val
+    ApplySLBtn()
+end)
+CreateSlider(ContentShift, "From Bottom", "⬆️", 0, 400, Values.ShiftLock.FromBottom, "px", function(val)
+    Values.ShiftLock.FromBottom = val
+    ApplySLBtn()
+end)
+
+-- Note kecil
+local slNote = Instance.new("TextLabel", ContentShift)
+slNote.Size = UDim2.new(1, 0, 0, 28)
+slNote.BackgroundTransparency = 1
+slNote.Text = "💡 Seperti Shift Lock di PC: karakter menghadap sesuai arah kamera. Tap tombol 🔒 di layar untuk ON/OFF."
+slNote.TextColor3 = C.text3
+slNote.Font = Enum.Font.Gotham
+slNote.TextSize = 10
+slNote.TextXAlignment = Enum.TextXAlignment.Left
+slNote.TextWrapped = true
+slNote.ZIndex = 202
+
+-- Sinkron visual tombol floating + status (dipanggil SetShiftLock)
+RefreshSLVisuals = function()
+    if Values.ShiftLockOn then
+        SLLockBtn.BackgroundColor3 = C.accent
+        slStatusBtn.BackgroundColor3 = C.accentDark
+        slStatusIcon.Text = "🔒"
+        slStatusText.Text = "Shift Lock: ON"
+        slStatusText.TextColor3 = C.green
+    else
+        SLLockBtn.BackgroundColor3 = C.bg2
+        slStatusBtn.BackgroundColor3 = C.bg3
+        slStatusIcon.Text = "🔓"
+        slStatusText.Text = "Shift Lock: OFF"
+        slStatusText.TextColor3 = C.text2
+    end
+end
+ApplySLBtn()
+RefreshPill()
+RefreshSLVisuals()
 
 -- ════════════════════════════════════════════════════════
 -- PANEL OPEN/CLOSE
