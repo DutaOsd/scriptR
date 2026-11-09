@@ -33,6 +33,7 @@ local SCRIPTS = {
     { file = "jump.lua",          title = "Jump Settings",   desc = "Atur ukuran & posisi tombol jump (mobile)", stop = { "JumpSettingsGUI" } },
     { file = "noclip.lua",        title = "NoClip",          desc = "NoClip · shortcut K",                       stop = { "GrokNoClip" }, beta = true },
     { file = "path.lua",          title = "Path Movement",   desc = "Path visualizer + record/replay obby",      stop = { "PathMovementGUI", "PathVisuals" }, beta = true },
+    { file = "lagreducer.lua",    title = "Lag Reducer",     desc = "HARDCORE FPS boost · tampilan flat · reset = rejoin", stop = {}, beta = true, noStop = true },
     { file = "rejoin.lua",        title = "Rejoin",          desc = "Auto rejoin server · hotkey R",             stop = { "RejoinGUI" } },
     { file = "speedometer.lua",   title = "Speedometer",     desc = "Kecepatan gerak avatar di atas kepala",     stop = { "SpeedometerToggle" } },
     { file = "wasd.lua",          title = "WASD Mobile",     desc = "Tombol WASD virtual untuk mobile",          stop = { "WASD_X" }, beta = true },
@@ -548,27 +549,46 @@ refreshRunningTab = function()
         timeLbl.Parent = item
         rec.timeLabel = timeLbl
 
-        local stopBtn = Instance.new("TextButton")
-        stopBtn.Name = "StopBtn"
-        stopBtn.Size = UDim2.new(0, 68, 0, 30)
-        stopBtn.Position = UDim2.new(1, -78, 0.5, -15)
-        stopBtn.BackgroundColor3 = Color3.fromRGB(200, 70, 70)
-        stopBtn.Text = "Tutup"
-        stopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        stopBtn.Font = Enum.Font.GothamBold
-        stopBtn.TextSize = 12
-        stopBtn.AutoButtonColor = true
-        stopBtn.Parent = item
-        local sc = Instance.new("UICorner")
-        sc.CornerRadius = UDim.new(0, 8)
-        sc.Parent = stopBtn
+        if rec.entry.noStop then
+            -- Script ini tidak bisa di-"tutup" (tidak bisa di-undo) —
+            -- tampilkan info permanen, bukan tombol Tutup.
+            local perm = Instance.new("TextLabel")
+            perm.Name = "PermNote"
+            perm.Size = UDim2.new(0, 92, 0, 34)
+            perm.Position = UDim2.new(1, -100, 0.5, -17)
+            perm.BackgroundColor3 = Color3.fromRGB(60, 55, 30)
+            perm.Text = "Permanen\ns/d rejoin"
+            perm.TextColor3 = Color3.fromRGB(255, 215, 120)
+            perm.Font = Enum.Font.GothamBold
+            perm.TextSize = 9
+            perm.TextWrapped = true
+            perm.Parent = item
+            local pc = Instance.new("UICorner")
+            pc.CornerRadius = UDim.new(0, 8)
+            pc.Parent = perm
+        else
+            local stopBtn = Instance.new("TextButton")
+            stopBtn.Name = "StopBtn"
+            stopBtn.Size = UDim2.new(0, 68, 0, 30)
+            stopBtn.Position = UDim2.new(1, -78, 0.5, -15)
+            stopBtn.BackgroundColor3 = Color3.fromRGB(200, 70, 70)
+            stopBtn.Text = "Tutup"
+            stopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            stopBtn.Font = Enum.Font.GothamBold
+            stopBtn.TextSize = 12
+            stopBtn.AutoButtonColor = true
+            stopBtn.Parent = item
+            local sc = Instance.new("UICorner")
+            sc.CornerRadius = UDim.new(0, 8)
+            sc.Parent = stopBtn
 
-        stopBtn.MouseButton1Click:Connect(function()
-            stopScript(rec)
-            status.Text = "⏹ " .. rec.entry.title .. " ditutup"
-            status.TextColor3 = Color3.fromRGB(255, 200, 80)
-            notify("ScriptR Loader", rec.entry.title .. " ditutup")
-        end)
+            stopBtn.MouseButton1Click:Connect(function()
+                stopScript(rec)
+                status.Text = "⏹ " .. rec.entry.title .. " ditutup"
+                status.TextColor3 = Color3.fromRGB(255, 200, 80)
+                notify("ScriptR Loader", rec.entry.title .. " ditutup")
+            end)
+        end
     end
 
     runScroll.CanvasSize = UDim2.new(0, 0, 0, #running * 66 + 8)
