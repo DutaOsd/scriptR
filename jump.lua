@@ -402,11 +402,20 @@ CreateCorner(tabShiftBtn, 8)
 -- ════════════════════════════════════════════════════════
 -- CONTENT (tab Jump)
 -- ════════════════════════════════════════════════════════
-local Content = Instance.new("Frame", Panel)
+local Content = Instance.new("ScrollingFrame", Panel)
 Content.Size = UDim2.new(1, -20, 1, -88)
 Content.Position = UDim2.new(0, 10, 0, 84)
 Content.BackgroundTransparency = 1
 Content.ZIndex = 201
+Content.BorderSizePixel = 0
+Content.ScrollBarThickness = 3
+Content.ScrollBarImageColor3 = C.accent
+Content.CanvasSize = UDim2.new(0, 0, 0, 0)
+Content.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+local ContentPad = Instance.new("UIPadding", Content)
+ContentPad.PaddingLeft = UDim.new(0, 2)
+ContentPad.PaddingRight = UDim.new(0, 6)
 
 local Layout = Instance.new("UIListLayout", Content)
 Layout.Padding = UDim.new(0, 8)
@@ -415,12 +424,21 @@ Layout.SortOrder = Enum.SortOrder.LayoutOrder
 -- ════════════════════════════════════════════════════════
 -- CONTENT (tab Shift Lock)
 -- ════════════════════════════════════════════════════════
-local ContentShift = Instance.new("Frame", Panel)
+local ContentShift = Instance.new("ScrollingFrame", Panel)
 ContentShift.Size = UDim2.new(1, -20, 1, -88)
 ContentShift.Position = UDim2.new(0, 10, 0, 84)
 ContentShift.BackgroundTransparency = 1
 ContentShift.ZIndex = 201
 ContentShift.Visible = false
+ContentShift.BorderSizePixel = 0
+ContentShift.ScrollBarThickness = 3
+ContentShift.ScrollBarImageColor3 = C.accent
+ContentShift.CanvasSize = UDim2.new(0, 0, 0, 0)
+ContentShift.AutomaticCanvasSize = Enum.AutomaticSize.Y
+
+local ContentShiftPad = Instance.new("UIPadding", ContentShift)
+ContentShiftPad.PaddingLeft = UDim.new(0, 2)
+ContentShiftPad.PaddingRight = UDim.new(0, 6)
 
 local LayoutShift = Instance.new("UIListLayout", ContentShift)
 LayoutShift.Padding = UDim.new(0, 8)
